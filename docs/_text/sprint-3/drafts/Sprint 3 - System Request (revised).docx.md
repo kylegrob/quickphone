@@ -1,0 +1,17 @@
+<!-- Auto-generated from docs/sprint-3/drafts/Sprint 3 - System Request (revised).docx by tools/extract_text.py. Do not edit by hand; edit the original and re-run. -->
+
+# Sprint 3 - System Request (revised)
+
+System request
+
+Name: QuickPhone Repair Tracking System
+
+Project Sponsor: Dr. Ashiqullah Pardisi, owner, Quick Phone Repair & Designs, Raleigh, NC
+
+Business Need: QuickPhone repairs phones, tablets, laptops, game consoles and other devices at two store locations, yet its staff have no single, shared view of repair jobs and parts inventory across both stores. As a result, customers call to ask where their device is, repairs stall while waiting on parts that were not reordered in time, and devices risk being misplaced or released to the wrong person. This project aims to develop a system that schedules and tracks every repair from check-in through customer pickup and manages parts inventory levels, giving front desk staff, technicians, the store manager and the owner one view of open repairs and parts availability.
+
+Business Value: Implementing the system should reduce “where’s my phone?” calls by letting staff answer status questions instantly and by emailing customers when their device is ready for pickup. Linking parts inventory and supplier purchase orders to repair jobs should reduce the number of jobs stuck waiting on parts, shortening turnaround times and allowing both stores to complete more repairs. Tagging every device at check-in and verifying the ticket number, photo ID and signature at pickup should eliminate lost or wrongly released devices, protecting customer trust and QuickPhone’s reputation. Furthermore, a recorded history of who checked in, approved, repaired and released each device will improve accountability, and a consistent process at both stores will make it easier to train staff and support future growth.
+
+Business Requirements: Front desk staff will book optional drop-off appointments, check in customers and devices, create repair jobs, assign technicians and print a claim ticket and device tag label. Technicians will record diagnoses, quotes and the parts they use, which are deducted from stock automatically, and move each job through its statuses. The store manager will maintain parts inventory, review a low-stock list, create purchase orders, which the owner must approve before they are placed, and receive deliveries against them. At pickup, staff will verify the ticket and photo ID, capture a signature and record payment before releasing the device. When a repair is complete, front desk, the manager or the owner will send the customer one email from the store’s account; technicians cannot. Access follows four roles, and a dashboard will give the owner one view of open repairs and parts availability at both stores.
+
+Special Issues/Constraints: The system records payment taken on the existing card machine rather than collecting it, so the payment process is unchanged. Both stores work from the same information, though each store’s stock is tracked separately and transfers between stores are out of scope. Customer contact details and signatures must be protected, and photo ID numbers must not be stored. Customers are contacted by email only, from the store’s account, as the owner confirmed on September 21. Existing parts records may be imported from a spreadsheet at the owner’s choice. A four-student team must demonstrate the system in Sprint 4 (November 2-8, 2026) and hand it off by December 9, 2026.

@@ -1,0 +1,15 @@
+* text=auto
+*.md text eol=lf
+*.py text eol=lf
+
+*.docx binary
+*.pptx binary
+*.xlsx binary
+*.pdf  binary
+*.png  binary
+
+# Show Office changes as text in `git diff` (after a one-time:
+#   git config diff.office.textconv "python tools/extract_text.py --stdout")
+*.docx diff=office
+*.pptx diff=office
+*.xlsx diff=office
