@@ -1,0 +1,71 @@
+{% extends "shop/base.html" %}
+{% block title %}{% if appointment %}Reschedule{% else %}Book appointment{% endif %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>{% if appointment %}Reschedule {{ appointment.customer }}{% else %}Book a drop-off appointment{% endif %}</h1>
+  <p>Full time slots and booked technicians cannot be picked. An appointment holds the customer and technician, not the device.</p></div>
+  <a class="btn" href="{% url 'checkin' %}?date={{ day|date:'Y-m-d' }}">Back to check-in</a>
+</div>
+
+<div class="card" style="max-width:1100px">
+  <h2>Customer</h2>
+  {% if customer %}
+    <div class="picked" style="margin-top:12px"><div><strong>{{ customer }}</strong><br>{{ customer.phone }}</div><span class="pill">Selected</span></div>
+  {% else %}
+    <form method="get"><input type="hidden" name="date" value="{{ day|date:'Y-m-d' }}">
+      <label for="phone">Search by phone number</label>
+      <div class="inline-form"><input type="tel" id="phone" name="phone" value="{{ phone }}" style="flex:1"><button class="btn">Find customer</button></div>
+    </form>
+    {% for c in matches %}
+      <div class="item"><div class="grow"><strong>{{ c }}</strong><div class="sub">{{ c.phone }}</div></div>
+      <a class="btn small dark" href="?customer={{ c.pk }}&date={{ day|date:'Y-m-d' }}">Select</a></div>
+    {% empty %}{% if phone %}<p class="muted">No match. Enter a new customer below.</p>{% endif %}{% endfor %}
+    <h3>New customer</h3>
+    <div class="row">
+      <div><label for="fn">First name</label><input form="appt-form" type="text" id="fn" name="first_name" value="{{ post.first_name }}" maxlength="40"></div>
+      <div><label for="ln">Last name</label><input form="appt-form" type="text" id="ln" name="last_name" value="{{ post.last_name }}" maxlength="40"></div>
+      <div><label for="ph">Phone</label><input form="appt-form" type="tel" id="ph" name="phone" value="{{ post.phone|default:phone }}" maxlength="20"></div>
+      <div><label for="em">Email (optional)</label><input form="appt-form" type="email" id="em" name="email" value="{{ post.email }}" maxlength="120"></div>
+    </div>
+  {% endif %}
+
+  <span class="label">Date</span>
+  <div class="chips">{% for d in days %}<a class="chip {% if d == day %}on{% endif %}" href="?date={{ d|date:'Y-m-d' }}{% if customer and not appointment %}&customer={{ customer.pk }}{% endif %}">{% if forloop.first %}Today, {% endif %}{{ d|date:"D, M j" }}</a>{% endfor %}</div>
+
+  <form method="post" id="appt-form">{% csrf_token %}
+    {% if customer %}<input type="hidden" name="customer_id" value="{{ customer.pk }}">{% endif %}
+    <span class="label">Time slot</span>
+    <div class="chips">
+      {% for s in slots %}
+        {% if s.full %}<span class="chip full" aria-disabled="true">{{ s.label }}{% if not s.selected %} · Full{% endif %}</span>
+        {% else %}<label class="chip"><input type="radio" name="slot" value="{{ s.when.isoformat }}" data-busy="{{ s.busy|join:',' }}" {% if s.selected %}checked{% endif %} required>{{ s.label }}</label>{% endif %}
+      {% endfor %}
+    </div>
+    <span class="label">Technician</span>
+    <div class="pick" id="techs">
+      <label><input type="radio" name="technician_id" value="" checked><strong>Leave open</strong>A technician can claim it</label>
+      {% for t in technicians %}<label data-tech="{{ t.pk }}"><input type="radio" name="technician_id" value="{{ t.pk }}" {% if appointment.technician_id == t.pk %}checked{% endif %}><strong>{{ t.first_name }}</strong><span class="state">Pick a time first</span></label>{% endfor %}
+    </div>
+    <p class="actions" style="margin-top:22px"><button class="btn primary" type="submit">{% if appointment %}Save new time{% else %}Book appointment{% endif %}</button>
+    <a class="btn" href="{% url 'checkin' %}?date={{ day|date:'Y-m-d' }}">Cancel</a></p>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// Marks technicians already booked at the chosen time. The server checks again on save.
+function refresh() {
+  const slot = document.querySelector('input[name=slot]:checked');
+  const busy = slot ? slot.dataset.busy.split(',').filter(Boolean) : [];
+  document.querySelectorAll('#techs label[data-tech]').forEach(l => {
+    const isBusy = busy.includes(l.dataset.tech), input = l.querySelector('input');
+    l.classList.toggle('busy', isBusy);
+    input.disabled = isBusy;
+    if (isBusy && input.checked) { input.checked = false; document.querySelector('#techs input[value=""]').checked = true; }
+    l.querySelector('.state').textContent = !slot ? 'Pick a time first' : isBusy ? 'Booked at this time' : 'Available';
+  });
+}
+document.querySelectorAll('input[name=slot]').forEach(i => i.addEventListener('change', refresh));
+refresh();
+</script>
+{% endblock %}

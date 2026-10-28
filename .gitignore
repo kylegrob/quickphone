@@ -14,3 +14,9 @@ __pycache__/
 # Kyle's local working folders (drafts, render scripts, superseded diagram sets)
 /deliverables/
 /outlines/
+
+# Sprint 4 working system: local environment, database and captured emails
+/.venv/
+/app/dev.sqlite3
+/app/sent_emails/
+/app/staticfiles/

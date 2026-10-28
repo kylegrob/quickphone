@@ -42,6 +42,24 @@ Applied (Oct 23) to the physical DFD and ERD PDFs, the DFD and ERD Models docume
 - Job statuses (master list): Checked In, Diagnosing, Awaiting Approval, In Repair, Awaiting Parts, Ready for Pickup, Returned Unrepaired, Closed.
 - Existing inventory can be imported from CSV at launch.
 
+## Sprint 4 build decisions (Kyle, October 28)
+
+Made while building the working system in `app/` (Prototype A, Curation Memo Oct 24). Each answers an open question for the build; those marked *owner* still need the owner's confirmation. The documents named in "Documents to update" below do not yet reflect them.
+
+- Technicians **may** send the pickup notification (owner answer #1), without seeing the customer's address. Supersedes confirmation #6 and NFR05.
+- The parts on a quote are stored in a new **QUOTE_LINE** table (D3: quote_id, part_id, quantity, unit_cost); ERD goes to 17 entities. JOB_PART "Needed" keeps its meaning of a part request.
+- A declined quote sets Returned Unrepaired; Front Desk **may** record a fee, but none is required for release (*owner*).
+- The passcode is visible to the assigned technician, Managers and the Owner (*owner*: who counts as "authorized staff").
+- A Manager works in their **home store only**; only the Owner sees both stores (*owner*).
+- A Manager **may** approve a purchase order they created (*owner*).
+- PART gains a unique **sku** column, as Prototype A shows.
+- PostgreSQL is installed locally for the build. SQLite is used only for automated tests.
+- Placeholders still to confirm: store hours and 30-minute appointment slots (9:00–17:00).
+
+## Documents to update after the Sprint 4 build
+
+QUOTE_LINE and PART.sku in the logical and physical ERD and Appendix A; the QUOTE_LINE store reads and writes in DFD 3.0 (3.3 quote) and 4.0; NFR05 and UC-05 for Technician-sent email; UC-03 and UC-06 for the optional fee on a declined quote; NFR04 and UC-01 for passcode visibility; FR10 and UC-09 (Manager approves, self-approval allowed); FR13 and FR14 for store scope; the Prototype A screenshots (still show Owner approval and no passcode). Each change needs a Change Log row when the document was already submitted.
+
 ## Current models (Sprint 3, revision 2)
 
 Requirements catalog: **14 functional (FR01–FR14) and 6 nonfunctional (NFR01–NFR06)**, nine client-confirmed (FR08 is proposed: its pickup step is confirmed, but release only after payment is a team decision); NFR05 = technicians cannot send email, NFR06 = daily backup. Use cases UC-01 to UC-13 (UC-09 Approve Purchase Order, UC-12 Schedule Appointment, UC-13 View Repair Status for FR13 and DFD 8.0). A booked appointment pre-fills the customer and technician, not the device; free times are store hours less booked appointments.

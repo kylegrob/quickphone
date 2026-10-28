@@ -73,6 +73,13 @@ The OneDrive folder also held `ERD Diagram.docx`, an exact duplicate of the Spri
 | drafts/Sprint 3 - Product Backlog.xlsx | Draft | Changes listed on its "Sprint 3 Changes" sheet |
 | drafts/Sprint 3 - Owner Design Review Packet.docx | Draft | Sponsor feedback packet: rate three interface alternatives, open business rules, equipment, record check. Screenshots and yellow team notes to fill before sending |
 
+## Sprint 4: working system and specification (Nov 2–8)
+
+| File | Status | Notes |
+|---|---|---|
+| [../app/](../app/README.md) | Draft | Working system for the training session: Django 5.2 + PostgreSQL, Prototype A screens, 17 tables (ERD + QUOTE_LINE), 38 automated tests, resettable training data and a 60-minute session plan. Oct 28 build decisions and the documents they affect are in [project-context.md](project-context.md) |
+| Specification document | Not started | Needs the test cases and results from `app/shop/tests.py` |
+
 ## Logs (updated every sprint)
 
 | File | Purpose |

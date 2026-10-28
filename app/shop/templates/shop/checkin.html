@@ -1,0 +1,121 @@
+{% extends "shop/base.html" %}
+{% block title %}Check in{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Appointments and check-in</h1>
+  <p>Book drop-off appointments, then check devices in as Checked In jobs with a claim ticket and device tag</p></div>
+</div>
+
+<div class="grid">
+<div class="stack">
+  <section class="card" aria-labelledby="appts">
+    <div class="card-head">
+      <div><h2 id="appts">Drop-off appointments, {{ day|date:"l, M j" }}</h2><p>Start check-in from an appointment, or check in a walk-in</p></div>
+      <div class="actions">
+        <a class="btn" href="{% url 'appointment_new' %}?date={{ day|date:'Y-m-d' }}">Book appointment</a>
+        <a class="btn" href="{% url 'checkin' %}">Walk-in customer</a>
+      </div>
+    </div>
+    <div class="chips" style="margin-bottom:16px">
+      {% for d in days %}<a class="chip {% if d == day %}on{% endif %}" href="?date={{ d|date:'Y-m-d' }}">{% if forloop.first %}Today, {% endif %}{{ d|date:"D, M j" }}</a>{% endfor %}
+    </div>
+    {% for a in appointments %}
+      <div class="item {% if appointment.pk == a.pk %}sel{% endif %}">
+        <div class="time">{{ a.scheduled_at|time:"g:i A" }}</div>
+        <div class="grow"><strong>{{ a.customer }}</strong><div class="sub">{{ a.customer.phone }} · Tech: {{ a.technician.first_name|default:"open" }}</div></div>
+        <a class="btn small" href="{% url 'appointment_edit' a.pk %}">Reschedule</a>
+        <form method="post" action="{% url 'appointment_cancel' a.pk %}" class="inline" onsubmit="return confirm('Cancel this appointment?')">{% csrf_token %}<button class="btn small danger">Cancel</button></form>
+        {% if appointment.pk == a.pk %}<span class="btn small" aria-disabled="true">Linked</span>
+        {% else %}<a class="btn small dark" href="?appointment={{ a.pk }}&date={{ day|date:'Y-m-d' }}">Start check-in</a>{% endif %}
+      </div>
+    {% empty %}
+      <p class="muted">No booked appointments for this day. Walk-ins need none.</p>
+    {% endfor %}
+  </section>
+
+  <section class="card" aria-labelledby="cust">
+    <h2 id="cust">Customer</h2>
+    {% if customer %}
+      <div class="picked" style="margin-top:12px">
+        <div><strong>{{ customer }}</strong><br>{{ customer.phone }}{% if customer.email %} · {{ customer.email }}{% else %} · no email on file{% endif %}
+        {% with customer.devices.all as devs %}{% if devs %}<br><span class="muted">Devices on file: {{ devs|join:", " }}</span>{% endif %}{% endwith %}</div>
+        <span class="pill">Selected</span>
+      </div>
+      {% if not appointment %}<p><a href="{% url 'checkin' %}">Choose a different customer</a></p>{% endif %}
+    {% else %}
+      <form method="get">
+        <label for="phone">Search by phone number</label>
+        <div class="inline-form"><input type="tel" id="phone" name="phone" value="{{ phone }}" placeholder="(919) 555-0142" style="flex:1">
+        <button class="btn" type="submit">Find customer</button></div>
+      </form>
+      {% if phone %}
+        {% for c in matches %}
+          <div class="item"><div class="grow"><strong>{{ c }}</strong><div class="sub">{{ c.phone }}{% if c.devices.all %} · {{ c.devices.all|join:", " }}{% endif %}</div></div>
+          <a class="btn small dark" href="?customer={{ c.pk }}">Select</a></div>
+        {% empty %}<p class="muted">No customer with that phone. Enter a new customer below.</p>{% endfor %}
+      {% endif %}
+      <h3>New customer</h3>
+      <div class="row">
+        <div><label for="first_name">First name</label><input form="checkin-form" type="text" id="first_name" name="first_name" value="{{ post.first_name }}" maxlength="40"></div>
+        <div><label for="last_name">Last name</label><input form="checkin-form" type="text" id="last_name" name="last_name" value="{{ post.last_name }}" maxlength="40"></div>
+        <div><label for="new_phone">Phone</label><input form="checkin-form" type="tel" id="new_phone" name="phone" value="{{ post.phone|default:phone }}" maxlength="20"></div>
+        <div><label for="email">Email (for the pickup notification)</label><input form="checkin-form" type="email" id="email" name="email" value="{{ post.email }}" maxlength="120"></div>
+      </div>
+    {% endif %}
+  </section>
+
+  <form method="post" id="checkin-form" class="card" aria-labelledby="dev">{% csrf_token %}
+    {% if customer %}<input type="hidden" name="customer_id" value="{{ customer.pk }}">{% endif %}
+    <h2 id="dev">Device and reported problem</h2>
+    {% if customer and customer.devices.all %}
+      <span class="label">Device</span>
+      <div class="pick">
+        {% for d in customer.devices.all %}<label><input type="radio" name="device_id" value="{{ d.pk }}" {% if forloop.first %}checked{% endif %}><strong>{{ d }}</strong>{{ d.device_type|default:"" }}{% if d.serial_or_imei %} · {{ d.serial_or_imei }}{% endif %}</label>{% endfor %}
+        <label><input type="radio" name="device_id" value=""><strong>Another device</strong>Enter it below</label>
+      </div>
+    {% endif %}
+    <span class="label">Device type</span>
+    <div class="chips">{% for t in device_types %}<label class="chip"><input type="radio" name="device_type" value="{{ t }}" {% if post.device_type == t or not post.device_type and forloop.first %}checked{% endif %}>{{ t }}</label>{% endfor %}</div>
+    <div class="row">
+      <div><label for="brand">Brand (optional)</label><input type="text" id="brand" name="brand" value="{{ post.brand }}" maxlength="40" placeholder="Apple"></div>
+      <div><label for="model">Model</label><input type="text" id="model" name="model" value="{{ post.model }}" maxlength="60" placeholder="iPhone 13"></div>
+      <div><label for="serial">Serial or IMEI (optional)</label><input type="text" id="serial" name="serial_or_imei" value="{{ post.serial_or_imei }}" maxlength="40"></div>
+    </div>
+    <label for="issue">Reported problem</label>
+    <input type="text" id="issue" name="reported_issue" value="{{ post.reported_issue }}" maxlength="500" required placeholder="Cracked screen">
+    <label for="cond">Condition at intake (optional)</label>
+    <input type="text" id="cond" name="intake_condition" value="{{ post.intake_condition }}" maxlength="500" placeholder="Glass cracked across; display lights up">
+    <div class="row">
+      <div><label for="passcode">Device passcode (optional)</label><input type="password" id="passcode" name="passcode" autocomplete="off" maxlength="40">
+      <p class="hint">Only for camera replacements. Stored encrypted; seen by the assigned technician, Managers and the Owner.</p></div>
+      <div><label for="tech">Technician</label>
+      <select id="tech" name="technician_id"><option value="">Leave open for a technician to claim</option>
+        {% for t in technicians %}<option value="{{ t.pk }}" {% if t.pk == preselected_tech %}selected{% endif %}>{{ t.first_name }} {{ t.last_name }}</option>{% endfor %}
+      </select></div>
+    </div>
+  </form>
+</div>
+
+<aside class="stack">
+  <section class="card summary">
+    <h2>New job</h2>
+    <dl class="kv" style="margin-top:12px">
+      <dt>Ticket number</dt><dd>Generated on save</dd>
+      <dt>Status</dt><dd><span class="pill">Checked In</span></dd>
+      <dt>Store</dt><dd>{{ active_store.store_name }}</dd>
+      <dt>Source</dt><dd>{% if appointment %}{{ appointment.scheduled_at|time:"g:i A" }} appointment{% else %}Walk-in{% endif %}</dd>
+      <dt>Customer</dt><dd>{{ customer|default:"New or not selected" }}</dd>
+      <dt>Pickup email</dt><dd>{% if customer %}{% if customer.email %}On file{% else %}None on file{% endif %}{% else %}Enter above{% endif %}</dd>
+    </dl>
+  </section>
+  <section class="card">
+    <h2>Print preview</h2><p class="muted">Both carry the same ticket number</p>
+    <div class="ticket"><div class="kind"><span>CLAIM TICKET</span><span>{{ active_store.store_name|upper }}</span></div>
+      <div class="num">QP-····</div><div>{{ customer|default:"Customer" }}</div>
+      <p class="muted small">Bring this ticket and a photo ID to pick up</p></div>
+    <div class="ticket"><div class="kind"><span>DEVICE TAG</span></div><div class="num">QP-····</div></div>
+  </section>
+  <button class="btn primary block" type="submit" form="checkin-form">Create job and print ticket and tag</button>
+</aside>
+</div>
+{% endblock %}

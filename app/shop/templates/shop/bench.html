@@ -1,0 +1,153 @@
+{% extends "shop/base.html" %}
+{% block title %}My jobs{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>My assigned jobs</h1><p>Diagnose, quote and repair. Stock shown is for {{ active_store.store_name }}.</p></div>
+</div>
+
+<div class="grid-left">
+<nav aria-label="My jobs">
+  {% for j in mine %}
+    <a class="jobcard {% if job.pk == j.pk %}sel{% endif %}" href="{% url 'bench_job' j.pk %}">
+      <div class="top-line"><span class="mono">{{ j.ticket_number }}</span><span class="pill {{ j.status|slugify }}">{{ j.status }}</span></div>
+      <strong>{{ j.device }}</strong><span class="muted">{{ j.reported_issue|truncatechars:50 }}</span></a>
+  {% empty %}<p class="muted">No jobs assigned to you.</p>{% endfor %}
+  <h3>Open jobs to claim</h3>
+  {% for j in open_jobs %}
+    <a class="jobcard {% if job.pk == j.pk %}sel{% endif %}" href="{% url 'bench_job' j.pk %}">
+      <div class="top-line"><span class="mono">{{ j.ticket_number }}</span><span class="pill">Open</span></div>
+      <strong>{{ j.device }}</strong><span class="muted">{{ j.reported_issue|truncatechars:50 }}</span></a>
+  {% empty %}<p class="muted small">None waiting.</p>{% endfor %}
+</nav>
+
+<div class="stack">
+{% if job %}
+  <section class="card">
+    <div class="card-head"><div><h2 style="font-size:28px"><span class="mono">{{ job.ticket_number }}</span> · {{ job.device }}</h2>
+      <p>Checked in {{ job.check_in_at|date:"M j, g:i A" }}</p></div>
+      <span class="pill {{ job.status|slugify }}">{{ job.status }}</span></div>
+    {% include "shop/_steps.html" %}
+    <dl class="kv">
+      <dt>Customer</dt><dd>{{ job.customer }} <span class="muted">(contact details hidden for the Technician role)</span></dd>
+      <dt>Reported problem</dt><dd>{{ job.reported_issue }}</dd>
+      <dt>Condition</dt><dd>{{ job.intake_condition|default:"Not recorded" }}</dd>
+      {% if job.device_passcode %}<dt>Passcode</dt><dd>{% if passcode %}<span class="mono">{{ passcode }}</span>{% else %}On file; visible once the job is assigned to you{% endif %}</dd>{% endif %}
+      {% if job.diagnosis_notes and job.status != "Diagnosing" %}<dt>Diagnosis</dt><dd>{{ job.diagnosis_notes }}</dd>{% endif %}
+    </dl>
+    {% if not job.assigned_tech_id %}
+      <form method="post" style="margin-top:18px">{% csrf_token %}<input type="hidden" name="action" value="claim"><button class="btn primary">Assign this job to me</button></form>
+    {% elif job.status == "Checked In" %}
+      <form method="post" style="margin-top:18px">{% csrf_token %}<input type="hidden" name="action" value="start"><button class="btn primary">Start diagnosis</button></form>
+    {% endif %}
+  </section>
+
+  {% if job.status == "Diagnosing" %}
+  <form method="post" class="card" id="quote-form">{% csrf_token %}<input type="hidden" name="action" value="quote">
+    <h2>Diagnosis and quote</h2>
+    <label for="dx">Diagnosis</label>
+    <textarea id="dx" name="diagnosis_notes" maxlength="2000" placeholder="Findings and tests performed" required>{{ job.diagnosis_notes|default:"" }}</textarea>
+    <label for="filter">Parts needed</label>
+    <input type="search" id="filter" placeholder="Filter parts by name, model or SKU">
+    <table style="margin-top:8px">
+      <thead><tr><th>Use</th><th>Part needed</th><th class="num">On hand</th><th class="num">Qty</th><th class="num">Cost</th></tr></thead>
+      <tbody>{% for p in parts %}
+        <tr>
+          <td><input type="checkbox" name="use_{{ p.pk }}" id="use_{{ p.pk }}" data-cost="{{ p.standard_cost }}" style="width:24px;height:24px" {% if p.quoted %}checked{% endif %}></td>
+          <td><label for="use_{{ p.pk }}" style="margin:0;font-weight:400">{{ p }}<div class="part-sub"><span class="sku">{{ p.sku }}</span>{% if p.grade %} · {{ p.grade }}{% endif %}</div></label></td>
+          <td class="num">{% if p.on_hand %}{{ p.on_hand }}{% else %}<span class="pill out">Out</span>{% endif %}</td>
+          <td class="num"><input type="number" name="qty_{{ p.pk }}" value="{{ p.quoted|default:1 }}" min="1" class="w-num" aria-label="Quantity of {{ p }}"></td>
+          <td class="num">${{ p.standard_cost }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+    <p class="hint">Parts that are out of stock can still be quoted. When the customer approves, the job waits in Awaiting Parts and a Manager orders them.</p>
+    <div class="row" style="align-items:end">
+      <div><label for="labor">Labor cost ($)</label><input type="number" id="labor" name="labor_amount" min="0" step="0.01" value="{{ quote.labor_amount|default:'0' }}"></div>
+      <div class="totals" style="grid-column: span 2"><span>Parts</span><span id="t-parts">$0.00</span><span>Labor</span><span id="t-labor">$0.00</span>
+        <span class="grand">Quote total</span><span class="grand" id="t-total">$0.00</span></div>
+    </div>
+    <div class="actions" style="margin-top:18px">
+      <button class="btn primary">Send quote for approval</button>
+      <button class="btn danger" name="action" value="unrepairable" formnovalidate onclick="return confirm('Mark as not repairable? The diagnosis box is used as the reason. No fee is charged.')">Cannot be repaired</button>
+    </div>
+  </form>
+  {% endif %}
+
+  {% if job.status == "Awaiting Approval" or job.status == "In Repair" or job.status == "Awaiting Parts" or job.status == "Ready for Pickup" %}
+  <section class="card"><h2>Quote</h2>{% include "shop/_quote.html" %}
+    {% if job.status == "Awaiting Approval" %}<p class="note-box">Waiting for Front Desk to record the customer's decision.</p>{% endif %}</section>
+  {% endif %}
+
+  {% if job.status == "In Repair" or job.status == "Awaiting Parts" %}
+  <section class="card">
+    <h2>Repair work</h2>
+    <p class="muted">Recording a part as used takes it off {{ active_store.store_name }}'s stock straight away.</p>
+    {% if needed %}<h3>Waiting for parts</h3>
+      {% for n in needed %}<p>{{ n.part }} × {{ n.quantity }} <span class="pill awaiting-parts">Needed</span>{% if n.purchase_order %} on {{ n.purchase_order.number }} ({{ n.purchase_order.po_status }}){% endif %}</p>{% endfor %}{% endif %}
+    {% if job.status == "In Repair" %}
+    <table>
+      <thead><tr><th>Part</th><th class="num">On hand</th><th class="num">Quoted</th><th>Record</th></tr></thead>
+      <tbody>{% for p in parts %}{% if p.quoted %}
+        <tr><td>{{ p }}<div class="part-sub sku">{{ p.sku }}</div></td><td class="num">{{ p.on_hand }}</td><td class="num">{{ p.quoted }}</td>
+        <td><form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="part_id" value="{{ p.pk }}">
+          <input type="number" name="quantity" value="{{ p.quoted }}" min="1" class="w-num" aria-label="Quantity used">
+          <button class="btn small" name="action" value="use_part">Used</button></form></td></tr>
+      {% endif %}{% endfor %}</tbody>
+    </table>
+    <form method="post" class="inline-form" style="margin-top:16px">{% csrf_token %}
+      <label for="other" style="margin:0">Another part</label>
+      <select id="other" name="part_id" style="width:auto;flex:1">{% for p in parts %}<option value="{{ p.pk }}">{{ p }} ({{ p.on_hand }} on hand)</option>{% endfor %}</select>
+      <input type="number" name="quantity" value="1" min="1" class="w-num" aria-label="Quantity">
+      <button class="btn small" name="action" value="use_part">Used</button>
+      <button class="btn small" name="action" value="request_part">Request (out of stock)</button>
+    </form>
+    {% endif %}
+    {% if used %}<h3>Parts used</h3>{% for u in used %}<p>{{ u.part }} × {{ u.quantity }} <span class="muted small">{{ u.recorded_at|date:"M j, g:i A" }}</span></p>{% endfor %}{% endif %}
+    {% if job.status == "In Repair" %}
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="complete">
+      <label for="rn">Repair notes</label><textarea id="rn" name="repair_notes" maxlength="2000" placeholder="What was done and tested">{{ job.repair_notes|default:"" }}</textarea>
+      <p><button class="btn primary">Mark ready for pickup</button></p></form>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if job.status == "Ready for Pickup" or job.status == "Returned Unrepaired" %}
+  <section class="card"><h2>Pickup notification</h2>
+    {% if job.email_sent_at %}<p><span class="pill {{ job.email_status|slugify }}">{{ job.email_status }}</span> {{ job.email_sent_at|date:"M j, g:i A" }} by {{ job.email_sent_by.first_name }}</p>{% endif %}
+    {% if has_email %}<form method="post" action="{% url 'job_notify' job.pk %}">{% csrf_token %}<button class="btn">{% if job.email_sent_at %}Send again{% else %}Send pickup notification{% endif %}</button></form>
+    <p class="hint">Sent from the store's email account. The customer's address is not shown to technicians.</p>
+    {% else %}<p class="hint">No email on file; Front Desk will phone the customer.</p>{% endif %}
+  </section>
+  {% endif %}
+
+  {% include "shop/_history.html" %}
+{% else %}
+  <section class="card"><h2>No job selected</h2><p class="muted">Pick a job on the left, or claim an open one.</p></section>
+{% endif %}
+</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// Live quote total while the technician picks parts (Prototype A). The server recalculates on save.
+const form = document.getElementById('quote-form');
+if (form) {
+  const money = n => '$' + n.toFixed(2);
+  function total() {
+    let parts = 0;
+    form.querySelectorAll('input[type=checkbox][data-cost]').forEach(c => {
+      if (c.checked) parts += parseFloat(c.dataset.cost) * (parseInt(form.querySelector('[name=' + c.name.replace('use_', 'qty_') + ']').value) || 0);
+    });
+    const labor = parseFloat(form.labor_amount.value) || 0;
+    document.getElementById('t-parts').textContent = money(parts);
+    document.getElementById('t-labor').textContent = money(labor);
+    document.getElementById('t-total').textContent = money(parts + labor);
+  }
+  form.addEventListener('input', total);
+  total();
+  document.getElementById('filter').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    form.querySelectorAll('tbody tr').forEach(r => { r.hidden = q && !r.textContent.toLowerCase().includes(q); });
+  });
+}
+</script>
+{% endblock %}

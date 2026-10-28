@@ -1,0 +1,9 @@
+{% extends "shop/base.html" %}
+{% block title %}Not allowed{% endblock %}
+{% block content %}
+<div class="card login">
+  <h1>Not allowed</h1>
+  <p>{{ exception|default:"Your role cannot use this page." }}</p>
+  <p><a class="btn" href="{% url 'home' %}">Back to my screen</a></p>
+</div>
+{% endblock %}

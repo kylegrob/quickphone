@@ -1,0 +1,65 @@
+{% extends "shop/base.html" %}
+{% block title %}Parts inventory{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Parts inventory</h1><p>Low stock means at or below the reorder point. A Manager approves every purchase order.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'po_list' %}">Purchase orders</a><a class="btn" href="{% url 'inventory_import' %}">Import CSV</a><a class="btn" href="{% url 'part_new' %}">Add part</a></div>
+</div>
+
+{% if low_rows %}<div class="alert-box" role="alert"><strong>Low-stock alert:</strong> {{ low_rows|length }} part{{ low_rows|length|pluralize }} at or below the reorder point at {{ active_store.store_name }}:
+  {% for r in low_rows %}{{ r.part }} ({{ r.stock.quantity_on_hand }}){% if not forloop.last %}, {% endif %}{% endfor %}.</div>{% endif %}
+
+<div class="tiles">
+  <a class="tile" href="?"><span class="muted">Parts tracked</span><div class="n">{{ tracked }}</div></a>
+  <a class="tile" href="?low=1"><span class="muted">At or below reorder point</span><div class="n {% if low %}alert{% endif %}">{{ low }}</div></a>
+  <a class="tile" href="?low=1"><span class="muted">Out of stock</span><div class="n {% if out %}alert{% endif %}">{{ out }}</div></a>
+  <div class="tile"><span class="muted">Jobs awaiting parts</span><div class="n">{{ waiting|length }}</div>
+    <div class="small">{% for j in waiting %}<span class="mono">{{ j.ticket_number }}</span>{% if not forloop.last %}, {% endif %}{% endfor %}</div></div>
+</div>
+
+<div class="grid wide-main">
+<div>
+  <form method="get" class="inline-form" style="margin-bottom:16px">
+    <label for="q" style="margin:0">Search parts</label>
+    <input type="search" id="q" name="q" value="{{ q }}" placeholder="Part name, device model, or SKU" style="flex:1">
+    {% if low_only %}<input type="hidden" name="low" value="1">{% endif %}
+    <button class="btn">Search</button>
+    <a class="chip {% if low_only %}on{% endif %}" href="?{% if not low_only %}low=1{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}">Low stock only</a>
+  </form>
+  <div class="card table-card">
+  <table>
+    <thead><tr><th>SKU</th><th>Part</th><th>Supplier</th><th class="num">Unit cost</th><th class="num">On hand</th><th>Reorder at</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody>{% for r in rows %}
+      <tr>
+        <td class="sku"><a href="{% url 'part_edit' r.part.pk %}">{{ r.part.sku }}</a></td>
+        <td>{{ r.part.part_name }}<div class="part-sub">{{ r.part.device_model|default:"" }}{% if r.part.grade %} · {{ r.part.grade }}{% endif %}</div></td>
+        <td>{{ r.part.default_supplier|default:"None" }}</td>
+        <td class="num">${{ r.part.standard_cost }}</td>
+        <td class="num"><strong>{{ r.stock.quantity_on_hand }}</strong></td>
+        <td><form method="post" class="inline-form nowrap">{% csrf_token %}<input type="hidden" name="action" value="reorder"><input type="hidden" name="part_id" value="{{ r.part.pk }}">
+          <input type="number" name="reorder_point" value="{{ r.stock.reorder_point }}" min="0" class="w-num" aria-label="Reorder point for {{ r.part }}"><button class="btn small">Set</button></form></td>
+        <td>{% if r.stock.is_out %}<span class="pill out">Out</span>{% elif r.stock.is_low %}<span class="pill low">Low</span>{% else %}<span class="pill ok">OK</span>{% endif %}</td>
+        <td>
+          {% if r.po %}<a href="{% url 'po_detail' r.po.pk %}">On {{ r.po.number }}</a> <span class="muted small">({{ r.po.po_status }})</span>
+          {% elif r.stock.is_low %}<form method="post" class="inline-form nowrap">{% csrf_token %}<input type="hidden" name="action" value="add_to_po"><input type="hidden" name="part_id" value="{{ r.part.pk }}">
+            <input type="number" name="quantity" value="{% if r.stock.reorder_point > r.stock.quantity_on_hand %}{{ r.stock.reorder_point }}{% else %}1{% endif %}" min="1" class="w-num" aria-label="Quantity to order"><button class="btn small primary">Add to PO</button></form>{% endif %}
+          <details style="margin-top:6px"><summary class="small">Adjust count</summary>
+            <form method="post" class="inline-form" style="margin-top:6px">{% csrf_token %}<input type="hidden" name="action" value="adjust"><input type="hidden" name="part_id" value="{{ r.part.pk }}">
+              <input type="number" name="change" placeholder="+/-" class="w-num" aria-label="Change in quantity" required>
+              <input type="text" name="reason" placeholder="Reason (required)" aria-label="Reason" required style="width:170px"><button class="btn small">Save</button></form></details>
+        </td>
+      </tr>
+    {% empty %}<tr><td colspan="8" class="muted">No parts match.</td></tr>{% endfor %}</tbody>
+  </table>
+  </div>
+</div>
+
+<aside class="card">
+  <h2>Open purchase orders</h2><p class="muted">One supplier per order · {{ active_store.store_name }}</p>
+  {% for po in orders %}
+    <a class="jobcard" href="{% url 'po_detail' po.pk %}"><div class="top-line"><span class="mono">{{ po.number }}</span><span class="pill {{ po.po_status|slugify }}">{{ po.po_status }}</span></div>
+      <strong>{{ po.supplier }}</strong><span class="muted">${{ po.total|floatformat:2 }}{% if po.rejection_reason %} · returned: {{ po.rejection_reason }}{% endif %}</span></a>
+  {% empty %}<p class="muted">No open orders. Use Add to PO on a low part to start one.</p>{% endfor %}
+</aside>
+</div>
+{% endblock %}

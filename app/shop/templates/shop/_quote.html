@@ -1,0 +1,14 @@
+{% if quote %}
+<table>
+  <thead><tr><th>Part</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Line</th></tr></thead>
+  <tbody>{% for l in quote.lines.all %}<tr><td>{{ l.part }}<div class="part-sub sku">{{ l.part.sku }}</div></td><td class="num">{{ l.quantity }}</td><td class="num">${{ l.unit_cost }}</td><td class="num">${{ l.line_total|floatformat:2 }}</td></tr>
+  {% empty %}<tr><td colspan="4" class="muted">No parts; labor only.</td></tr>{% endfor %}</tbody>
+</table>
+<div class="totals" style="margin-top:14px">
+  <span>Parts</span><span>${{ quote.parts_amount }}</span>
+  <span>Labor</span><span>${{ quote.labor_amount }}</span>
+  <span class="grand">Quote total</span><span class="grand">${{ quote.total_amount }}</span>
+</div>
+<p>Customer decision: <span class="pill {{ quote.decision|slugify }}">{{ quote.decision }}</span>
+{% if quote.decision_by %}<span class="muted">recorded by {{ quote.decision_by.first_name }} on {{ quote.decision_at|date:"M j, g:i A" }}</span>{% endif %}</p>
+{% else %}<p class="muted">No quote yet.</p>{% endif %}
