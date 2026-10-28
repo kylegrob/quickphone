@@ -77,6 +77,6 @@ The OneDrive folder also held `ERD Diagram.docx`, an exact duplicate of the Spri
 
 | File | Purpose |
 |---|---|
-| logs/AI Decision Log.xlsx | Every major AI use: what it produced, accept/modify/reject, why, who |
-| logs/Change Log.xlsx | Running record of changes to submitted deliverables: cause and effect on later work. Sprint 3 rows from the .docx draft log folded in on Oct 22 |
-| logs/Time Log.xlsx | Hours per member per sprint, one sheet per sprint |
+| admin/AI Decision Log.xlsx | Every major AI use: what it produced, accept/modify/reject, why, who |
+| admin/Change Log.xlsx | Running record of changes to submitted deliverables: cause and effect on later work. Sprint 3 rows from the .docx draft log folded in on Oct 22 |
+| admin/Time Log.xlsx | Hours per member per sprint, one sheet per sprint |

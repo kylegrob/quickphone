@@ -1,4 +1,4 @@
-<!-- Auto-generated from docs/logs/Time Log.xlsx by tools/extract_text.py. Do not edit by hand; edit the original and re-run. -->
+<!-- Auto-generated from docs/admin/Time Log.xlsx by tools/extract_text.py. Do not edit by hand; edit the original and re-run. -->
 
 # Time Log
 

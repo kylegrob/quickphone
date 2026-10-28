@@ -15,11 +15,10 @@ CLAUDE.md               Points Claude Code at AGENTS.md
 docs/
   README.md             Index of every document, with its sprint and status
   project-context.md    One-page brief: scope, decisions, confirmed requirements, open items
-  admin/                Team contract and Student Consulting MOU
+  admin/                Team contract, Student Consulting MOU, AI Decision Log, Change Log, Time Log
   course/               Course rules: project spec, AI guidelines, sprint presentation briefs
   sprint-1/, sprint-2/… Deliverables as submitted, one folder per sprint
   sprint-3/drafts/      Revised work not yet final (replaces older versions when submitted)
-  logs/                 AI Decision Log, Change Log, Time Log
   _text/                Auto-generated Markdown copies of every .docx/.pptx/.xlsx
 feedback/               Professor and client feedback, one file per sprint
 tools/extract_text.py   Regenerates docs/_text/

@@ -21,7 +21,7 @@ This repository holds the course deliverables for the Quick Phone Repair Managem
 
 ## Keeping the logs (in the same change, not afterwards)
 
-Both logs live in `docs/logs/` and are submitted every sprint. Add their rows as part of the edit that causes them, then run the extractor.
+Both logs live in `docs/admin/` and are submitted every sprint. Add their rows as part of the edit that causes them, then run the extractor.
 
 - **Change Log.xlsx:** whenever a change alters a deliverable that was already submitted, append a complete row: Sprint, Deliverable, What changed, Why (whose feedback or which downstream change), and Effect on later deliverables. These rows are factual, so the assistant writes them in full. Edits to unsubmitted drafts need no row until the draft is submitted.
 - **AI Decision Log.xlsx:** for every substantive AI contribution (requirements, use cases, models, prototypes, code, tests, security advice, user documentation), append a row with Date, Sprint, Artifact, Tool (name the model) and What the AI produced. Leave Decision as `PENDING: accountable member to decide`. Write Rationale as `PENDING. Evidence to cite: ...`, pointing to the sources the member should check. Name the accountable member, or mark them `CONFIRM`. **Never fill in the decision or rationale yourself.** The course grades the team's judgement, and any member may be asked to defend any row. Grammar, spelling and formatting fixes need no row.
