@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>html,body{margin:0;background:#fff;overflow:hidden}svg{display:block}text{font-family:'Segoe UI',Arial,sans-serif}</style></head>
+<body><svg id="s" xmlns="http://www.w3.org/2000/svg" width="1330" height="1180"></svg>
+<script>
+// QuickPhone use case diagram (Sprint 3): 4 actors, 13 use cases; UC-12 Schedule Appointment and UC-13 View Repair Status are new.
+const NS='http://www.w3.org/2000/svg',svg=document.getElementById('s');
+const mk=(t,a)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);svg.appendChild(e);return e;};
+const tx=(x,y,s,o={})=>{const e=mk('text',{x,y,'font-size':o.fs||22,'font-weight':o.fw||400,'text-anchor':o.a||'middle',fill:o.fill||'#111'});e.textContent=s;return e;};
+const G='#c9c6bd';
+mk('rect',{width:1330,height:1180,fill:'#fff'});
+tx(42,58,'Front Desk runs scheduling, intake and pickup; only the Owner approves purchase orders',{fs:25,fw:600,a:'start'});
+mk('rect',{x:336,y:112,width:672,height:1040,rx:12,fill:'none',stroke:G,'stroke-width':2});
+tx(672,158,'Quick Phone Repair Management System',{fs:20,fill:'#555'});
+const ucs=[['UC-12 Schedule Appointment',1],['UC-01 Check In Device'],['UC-03 Record Customer Approval'],['UC-06 Release Device and Record Payment'],
+ ['UC-05 Send Pickup Notification'],['UC-13 View Repair Status',1],['UC-02 Diagnose Device and Prepare Quote'],['UC-04 Repair Device and Record Parts Used'],
+ ['UC-07 Maintain Parts Inventory'],['UC-08 Create Purchase Order'],['UC-10 Receive Purchase Order'],['UC-11 Manage User Accounts'],['UC-09 Approve Purchase Order']];
+const Y=i=>205+i*72, L=380, R=964;
+const actor=(x,y,name)=>{mk('circle',{cx:x,cy:y-50,r:16,fill:'none',stroke:G,'stroke-width':2.5});
+  mk('line',{x1:x,y1:y-34,x2:x,y2:y+10,stroke:G,'stroke-width':2.5});mk('line',{x1:x-28,y1:y-18,x2:x+28,y2:y-18,stroke:G,'stroke-width':2.5});
+  mk('line',{x1:x,y1:y+10,x2:x-22,y2:y+46,stroke:G,'stroke-width':2.5});mk('line',{x1:x,y1:y+10,x2:x+22,y2:y+46,stroke:G,'stroke-width':2.5});
+  tx(x,y+82,name,{fw:600});return [x,y-18];};
+const fd=actor(159,370,'Front Desk'),te=actor(159,680,'Technician'),mg=actor(1184,860,'Manager'),ow=actor(1184,1050,'Owner');
+const link=(a,i,side)=>mk('line',{x1:a[0]+(side==='L'?40:-40),y1:a[1],x2:side==='L'?L:R,y2:Y(i),stroke:G,'stroke-width':2});
+[0,1,2,3,4,5].forEach(i=>link(fd,i,'L'));[6,7].forEach(i=>link(te,i,'L'));
+[4,8,9,10,11].forEach(i=>link(mg,i,'R'));[4,5,11,12].forEach(i=>link(ow,i,'R'));
+ucs.forEach(([n,isNew],i)=>{mk('ellipse',{cx:672,cy:Y(i),rx:292,ry:29,fill:isNew?'#e3eefb':'#fff',stroke:isNew?'#2f74d0':G,'stroke-width':isNew?3.5:2});
+  tx(672,Y(i)+8,n,{fw:isNew?700:400});});
+document.title='done';
+</script></body></html>

@@ -1,0 +1,385 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+html,body{margin:0;background:#fff;overflow:hidden}
+svg{display:block}
+text{font-family:'Segoe UI',Arial,sans-serif}
+</style></head>
+<body><svg id="s" xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"></svg>
+<script>
+// QuickPhone ERD, slide edition (Sprint 3 rev. 2): 19 entities, each held by exactly one DFD data store (Sprint 4 rev.: QUOTE_LINE, DEVICE_MODEL, SCREEN_ACCESS added).
+//   ?v=log|phys  logical (CamelCase, generic types) or physical (snake_case, SQL types, NOT NULL)
+//   ?s=overview  every entity inside its DFD store container, with relationships
+//   ?s=1|2|3     full attributes for one group of stores (readable on a 16:9 slide)
+const NS='http://www.w3.org/2000/svg', MONO="Consolas,'Courier New',monospace";
+const Q=new URLSearchParams(location.search), PHYS=Q.get('v')!=='log', VIEW=Q.get('s')||'overview';
+let W=1920,H=1080;
+let root;
+function mk(tag,a,p){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);(p||root).appendChild(e);return e;}
+function txt(x,y,s,o={}){const a={x,y,'font-size':o.fs||20,'font-weight':o.fw||400,'text-anchor':o.anchor||'start',fill:o.fill||'#222'};
+  if(o.ff)a['font-family']=o.ff;if(o.it)a['font-style']='italic';const t=mk('text',a);t.textContent=s;return t;}
+
+// ---- DFD data stores (same numbering as the DFDs) ----
+const STORES={D1:['Customers & Devices','#2e6b4f'],D2:['Appointments','#5a7d2a'],D3:['Repair Jobs','#8a5a00'],
+  D4:['Parts Inventory','#2d5f8a'],D5:['Purchase Orders','#8b3a2b'],D6:['Suppliers','#5b4a8a'],D7:['Staff & Stores','#1f4e79']};
+// ---- entities: [key, physical name, SQL type, NOT NULL, physical-only (1) or derived and physical-only (2)] ----
+// Derived attributes (2) break 3NF (SAD 8e App. 5A), so the logical model omits them; the physical model
+// stores them as documented denormalizations (SAD 8e Ch. 10).
+const E={
+ store:['D7',[['PK','store_id','INTEGER',1],['UK','store_name','VARCHAR(60)',1],['','address','VARCHAR(200)',1],['','phone','VARCHAR(20)',1],['','email_address','VARCHAR(120)',1],['','business_hours','VARCHAR(120)',1]]],
+ employee:['D7',[['PK','employee_id','INTEGER',1],['FK store','store_id','INTEGER',1],['','first_name','VARCHAR(40)',1],['','last_name','VARCHAR(40)',1],['UK','email','VARCHAR(120)',1],['CK','role','VARCHAR(12)',1],['','password_hash','VARCHAR(255)',1,1],['','active_flag','BOOLEAN',1]]],
+ // Sprint 4, 2026-10-30: the Owner opens or closes a screen for a role; no row means the default applies.
+ screen_access:['D7',[['PK','screen_access_id','INTEGER',1],['CK,UK','role','VARCHAR(12)',1],['UK','screen','VARCHAR(20)',1],['','allowed','BOOLEAN',1],['FK employee','updated_by_id','INTEGER',0],['','updated_at','TIMESTAMP',1]]],
+ customer:['D1',[['PK','customer_id','INTEGER',1],['','first_name','VARCHAR(40)',1],['','last_name','VARCHAR(40)',1],['IX','phone','VARCHAR(20)',1],['','email','VARCHAR(120)',0],['','created_at','TIMESTAMP',1]]],
+ // Owner, Oct 23: intake records name, phone, device model and the issue, so device type and brand are optional;
+ // technicians are assigned by hand or claim a job or appointment themselves, so both technician keys start empty;
+ // an optional device passcode is stored with the job, encrypted, for authorized staff only.
+ device:['D1',[['PK','device_id','INTEGER',1],['FK customer','customer_id','INTEGER',1],['','device_type','VARCHAR(20)',0],['','brand','VARCHAR(40)',0],['','model','VARCHAR(60)',1],['IX','serial_or_imei','VARCHAR(40)',0]]],
+ // Sprint 4, 2026-10-30: check-in picks brand and model from this list; the values are copied to DEVICE (no key).
+ device_model:['D1',[['PK','device_model_id','INTEGER',1],['CK','device_type','VARCHAR(20)',1],['UK','brand','VARCHAR(40)',1],['UK','model','VARCHAR(60)',1]]],
+ appointment:['D2',[['PK','appointment_id','INTEGER',1],['FK customer','customer_id','INTEGER',1],['FK store','store_id','INTEGER',1],['FK employee','technician_id','INTEGER',0],['','scheduled_at','TIMESTAMP',1],['CK','appt_status','VARCHAR(12)',1]]],
+ repair_job:['D3',[['PK','repair_job_id','INTEGER',1],['UK','ticket_number','VARCHAR(12)',1],['FK device','device_id','INTEGER',1],['FK store','store_id','INTEGER',1],['FK,UK appt.','appointment_id','INTEGER',0],['FK employee','assigned_tech_id','INTEGER',0],['CK','status','VARCHAR(20)',1,2],['','reported_issue','VARCHAR(500)',1],['','device_passcode','VARCHAR(255)',0,0,'encrypted'],['','intake_condition','VARCHAR(500)',0],['','diagnosis_notes','VARCHAR(2000)',0],['','repair_notes','VARCHAR(2000)',0],['','check_in_at','TIMESTAMP',1],['','completed_at','TIMESTAMP',0],['','final_cost','DECIMAL(10,2)',0],['','email_sent_at','TIMESTAMP',0],['FK employee','email_sent_by_id','INTEGER',0],['CK','email_status','VARCHAR(10)',0],['','picked_up_at','TIMESTAMP',0],['','id_verified_flag','BOOLEAN',1],['','signature_file','VARCHAR(255)',0]]],
+ job_status_history:['D3',[['PK','history_id','BIGINT',1],['FK repair_job','repair_job_id','INTEGER',1],['CK','status','VARCHAR(20)',1],['FK employee','changed_by_id','INTEGER',1],['','changed_at','TIMESTAMP',1],['','note','VARCHAR(300)',0]]],
+ quote:['D3',[['PK','quote_id','INTEGER',1],['FK repair_job','repair_job_id','INTEGER',1],['','labor_amount','DECIMAL(10,2)',1],['','parts_amount','DECIMAL(10,2)',1],['','total_amount','DECIMAL(10,2)',1,2],['CK','decision','VARCHAR(10)',1],['','decision_at','TIMESTAMP',0],['FK employee','decision_by_id','INTEGER',0]]],
+ // Sprint 4 (2026-10-28 and 2026-10-30): the parts on a quote, so a quote is shown and approved at check-in.
+ quote_line:['D3',[['PK','quote_line_id','INTEGER',1],['FK quote','quote_id','INTEGER',1],['FK part','part_id','INTEGER',1],['CK','quantity','INTEGER',1],['','unit_cost','DECIMAL(10,2)',1]]],
+ payment:['D3',[['PK','payment_id','INTEGER',1],['FK repair_job','repair_job_id','INTEGER',1],['','amount','DECIMAL(10,2)',1],['CK','method','VARCHAR(12)',1],['CK','payment_status','VARCHAR(10)',1],['','paid_at','TIMESTAMP',1]]],
+ job_part:['D3',[['PK','job_part_id','INTEGER',1],['FK repair_job','repair_job_id','INTEGER',1],['FK part','part_id','INTEGER',1],['FK purch._order','purchase_order_id','INTEGER',0],['','quantity','INTEGER',1],['CK','part_status','VARCHAR(8)',1],['','recorded_at','TIMESTAMP',1]]],
+ part:['D4',[['PK','part_id','INTEGER',1],['UK','sku','VARCHAR(30)',1],['FK supplier','default_supplier_id','INTEGER',0],['','part_name','VARCHAR(100)',1],['','device_model','VARCHAR(60)',0],['','grade','VARCHAR(20)',0],['','standard_cost','DECIMAL(10,2)',1],['CK','labor_cost','DECIMAL(10,2)',1,0,'set by Owner'],['','active_flag','BOOLEAN',1]]],
+ store_part_stock:['D4',[['PK,FK store','store_id','INTEGER',1],['PK,FK part','part_id','INTEGER',1],['CK','quantity_on_hand','INTEGER',1,2],['','reorder_point','INTEGER',1]]],
+ inventory_txn:['D4',[['PK','inventory_txn_id','BIGINT',1],['FK stock','store_id','INTEGER',1],['FK stock','part_id','INTEGER',1],['FK employee','recorded_by_id','INTEGER',1],['CK','txn_type','VARCHAR(12)',1],['','quantity_change','INTEGER',1],['','reason','VARCHAR(200)',0],['','txn_at','TIMESTAMP',1]]],
+ supplier:['D6',[['PK','supplier_id','INTEGER',1],['UK','supplier_name','VARCHAR(100)',1],['','contact_name','VARCHAR(80)',0],['','phone','VARCHAR(20)',0],['','email','VARCHAR(120)',0],['','active_flag','BOOLEAN',1]]],
+ purchase_order:['D5',[['PK','purchase_order_id','INTEGER',1],['FK store','store_id','INTEGER',1],['FK supplier','supplier_id','INTEGER',1],['FK employee','created_by_id','INTEGER',1],['FK employee','approved_by_id','INTEGER',0],['CK','po_status','VARCHAR(20)',1],['','created_at','TIMESTAMP',1],['','approved_at','TIMESTAMP',0],['','placed_at','TIMESTAMP',0],['','rejection_reason','VARCHAR(300)',0]]],
+ po_line:['D5',[['PK','po_line_id','INTEGER',1],['FK purch._order','purchase_order_id','INTEGER',1],['FK part','part_id','INTEGER',1],['','quantity_ordered','INTEGER',1],['','quantity_received','INTEGER',1],['','unit_cost','DECIMAL(10,2)',1]]]};
+const camel=n=>n.split('_').map(w=>w==='id'?'ID':w==='imei'?'IMEI':w==='po'?'PO':w[0].toUpperCase()+w.slice(1)).join('');
+const gtype=t=>/INT/.test(t)?'int':/CHAR/.test(t)?'string':/DECIMAL/.test(t)?'decimal':/TIMESTAMP/.test(t)?'datetime':/BOOL/.test(t)?'boolean':t;
+const ename=id=>PHYS?id:id.toUpperCase();
+const cols=id=>E[id][1].filter(c=>PHYS||!c[4]);
+
+// ---- crow's foot markers on any line direction ----
+const LINE='#3a3a3a';
+function marker(P,ux,uy,kind){ // P on the box edge, (ux,uy) unit vector pointing away from the box
+  const px=-uy,py=ux,L=(a,b,c,d)=>mk('line',{x1:a,y1:b,x2:c,y2:d,stroke:LINE,'stroke-width':2.2});
+  const at=d=>[P[0]+ux*d,P[1]+uy*d];
+  const bar=d=>{const [x,y]=at(d);L(x+px*10,y+py*10,x-px*10,y-py*10);};
+  const ring=d=>{const [x,y]=at(d);mk('circle',{cx:x,cy:y,r:6,fill:'#fff',stroke:LINE,'stroke-width':2.2});};
+  if(kind==='1'){bar(10);bar(18);}
+  else if(kind==='Z1'){bar(10);ring(25);}
+  else{const [x,y]=at(20);L(x,y,P[0]+px*11,P[1]+py*11);L(x,y,P[0]-px*11,P[1]-py*11);L(x,y,P[0],P[1]);
+    if(kind==='M1')bar(27);else ring(29);}
+}
+function edge(b,toward){ // box b {x,y,w,h} centre-based; exit point toward a point
+  const dx=toward[0]-b.x,dy=toward[1]-b.y,s=Math.min(Math.abs((b.w/2)/(dx||1e-9)),Math.abs((b.h/2)/(dy||1e-9)));
+  return[b.x+dx*s,b.y+dy*s];}
+function link(A,B,ka,kb,o={}){ // straight line between two boxes, markers at both ends
+  const a=edge(A,[B.x+(o.bx||0),B.y+(o.by||0)]),b=edge(B,[A.x+(o.ax||0),A.y+(o.ay||0)]);
+  const ax=o.ao?[A.x+o.ao[0],A.y+o.ao[1]]:a, bx=o.bo?[B.x+o.bo[0],B.y+o.bo[1]]:b;
+  mk('line',{x1:ax[0],y1:ax[1],x2:bx[0],y2:bx[1],stroke:LINE,'stroke-width':2.2});
+  const L=Math.hypot(bx[0]-ax[0],bx[1]-ax[1]);
+  return()=>{marker(ax,(bx[0]-ax[0])/L,(bx[1]-ax[1])/L,ka);marker(bx,(ax[0]-bx[0])/L,(ax[1]-bx[1])/L,kb);};
+}
+function ortho(pts,ka,kb){ // orthogonal route; first/last points sit on box edges
+  mk('polyline',{points:pts.map(q=>q.join(',')).join(' '),fill:'none',stroke:LINE,'stroke-width':2.2});
+  const u=(p,q)=>{const L=Math.hypot(q[0]-p[0],q[1]-p[1]);return[(q[0]-p[0])/L,(q[1]-p[1])/L];};
+  const n=pts.length;return()=>{const a=u(pts[0],pts[1]),b=u(pts[n-1],pts[n-2]);marker(pts[0],a[0],a[1],ka);marker(pts[n-1],b[0],b[1],kb);};
+}
+
+// Relationship names (SAD 8e Ch. 5, Step 3; both directions as in Fig. 10-8, "Places / Is Placed By"): the first
+// name reads from the "one" (parent) side to the "many" (child) side, "a STORE employs EMPLOYEEs"; the second reads
+// back, "an EMPLOYEE is employed by a STORE". The pair straddles the line: first above (or left of) it, second below
+// (or right). rot: written along a vertical line.
+const REV={'employs':'is employed by','owns':'is owned by','schedules':'is scheduled at','books':'is booked by',
+  'handles':'is handled by','undergoes':'is performed on','takes in':'is taken in by','works on':'is assigned to',
+  'leads to':'results from','tracks':'belongs to','generates':'is generated for','receives':'is received for',
+  'uses':'is used on','is included in':'includes','appears in':'is stock of','holds':'is held by','logs':'is logged for',
+  'appears on':'lists','provides':'is provided by','fulfills':'is fulfilled by','issues':'is issued by',
+  'contains':'is contained in','supplies':'is supplied by','changes':'is made by','decides':'is decided by',
+  'records':'is recorded by','creates':'is created by','approves':'is approved by',
+  'sends notification for':'has notification sent by','itemizes':'is itemized on'};
+function rel(x,y,s,o={}){
+  if(!(s in REV))throw new Error('no reverse name for '+s);
+  const d=o.gap||14;
+  [s,REV[s]].forEach((t,i)=>{
+    const a={x,y:y+(i?d:-d),'font-size':19,'font-weight':600,'font-style':'italic','text-anchor':o.anchor||'middle','dominant-baseline':'central',
+      fill:'#7a3b00',stroke:'#fff','stroke-width':6,'stroke-linejoin':'round','paint-order':'stroke'};
+    if(o.rot)a.transform=`rotate(-90 ${x} ${y})`;
+    mk('text',a).textContent=t;});}
+
+function header(title,sub){
+  txt(40,48,title,{fs:34,fw:700,fill:'#1f4e79'});
+  if(sub)txt(40,84,sub,{fs:20,fill:'#555'});
+}
+
+// =================== overview ===================
+function overview(){
+  header(PHYS?'QuickPhone — Physical ERD overview: 19 tables in 7 DFD data stores':'QuickPhone — Logical ERD overview: 19 entities in 7 DFD data stores',
+    'Each shaded box is a DFD data store holding exactly these entities. Each line is named both ways: top or left from the "one" side, bottom or right back from the "many" side.');
+  const C=(id,x,y,w,h,px=14)=>{const [nm,col]=STORES[id];   // px: where the store label sits, clear of the lines
+    mk('rect',{x,y,width:w,height:h,rx:16,fill:col,'fill-opacity':0.07,stroke:col,'stroke-width':2.5,'stroke-dasharray':'10 6'});
+    mk('rect',{x:x+px,y:y-16,width:nm.length*11.5+70,height:32,rx:8,fill:col});
+    txt(x+px+12,y+7,id+'  '+nm,{fs:19,fw:700,fill:'#fff'});};
+  C('D7',40,120,560,170);C('D1',660,120,560,170);C('D2',1280,120,600,170);
+  C('D3',40,400,1840,250,180);
+  C('D4',40,725,820,330,520);C('D5',920,725,560,330);C('D6',1540,725,340,330);
+  const B={};const box=(id,x,y,w=240,h=62)=>{const col=STORES[E[id][0]][1];B[id]={x,y,w,h};
+    mk('rect',{x:x-w/2,y:y-h/2,width:w,height:h,rx:8,fill:'#fff',stroke:col,'stroke-width':3});
+    mk('rect',{x:x-w/2,y:y-h/2,width:10,height:h,fill:col});
+    txt(x+4,y+8,ename(id),{fs:21,fw:700,anchor:'middle',ff:PHYS?MONO:undefined});};
+  // Tables with no foreign-key line sit on the top edge of their store container, so the lines below stay clear.
+  const chip=(id,x,w)=>{const col=STORES[E[id][0]][1];
+    mk('rect',{x,y:98,width:w,height:40,rx:8,fill:'#fff',stroke:col,'stroke-width':3});mk('rect',{x,y:98,width:10,height:40,fill:col});
+    txt(x+w/2+4,124,ename(id),{fs:21,fw:700,anchor:'middle',ff:PHYS?MONO:undefined});};
+  chip('screen_access',350,235);chip('device_model',975,200);
+  // Boxes are spaced so every relationship line has room for its two names.
+  box('store',135,205,170);box('employee',490,205,210);
+  box('customer',780,205,180);box('device',1120,205,180);
+  box('appointment',1580,205,270);
+  box('job_status_history',320,470,300);box('quote',250,600,180);box('quote_line',700,614,210,52);
+  box('repair_job',960,525,400,80);
+  box('payment',1600,470);box('job_part',1600,585);
+  box('part',200,835,200);box('store_part_stock',600,835,280);box('inventory_txn',600,990,260);
+  box('purchase_order',1200,835,300);box('po_line',1200,990,220);
+  box('supplier',1710,835,230);
+  const gl=mk('g',{}),gb=mk('g',{});
+  // draw lines below boxes: move boxes group after
+  const svg=document.getElementById('s');
+  const R=[];root=gl;
+  R.push(link(B.store,B.employee,'1','M0'));
+  R.push(link(B.customer,B.device,'1','M0'));
+  // Horizontal runs between the top row and D3 are 30 px apart so each pair of names fits between them.
+  R.push(ortho([[740,236],[740,280],[1470,280],[1470,236]],'1','M0'));               // customer → appointment
+  R.push(ortho([[1180,236],[1180,340],[1000,340],[1000,485]],'1','M0'));            // device → repair_job
+  R.push(ortho([[1690,236],[1690,370],[1120,370],[1120,485]],'Z1','Z1'));           // appointment → repair_job
+  R.push(ortho([[460,236],[460,310],[1600,310],[1600,236]],'Z1','M0'));             // employee (technician, optional) → appointment
+  R.push(ortho([[540,236],[540,340],[890,340],[890,485]],'Z1','M0'));               // employee (assigned tech, optional) → repair_job
+  R.push(ortho([[100,236],[100,710],[480,710],[480,804]],'1','M0'));                // store → store_part_stock
+  R.push(ortho([[150,236],[150,690],[1230,690],[1230,804]],'1','M0'));              // store → purchase_order
+  R.push(ortho([[200,236],[200,370],[790,370],[790,485]],'1','M0'));                // store → repair_job
+  R.push(ortho([[190,174],[190,150],[1500,150],[1500,174]],'1','M0'));              // store → appointment
+  R.push(link(B.repair_job,B.job_status_history,'1','M1'));
+  R.push(link(B.repair_job,B.quote,'1','M0'));
+  R.push(link(B.quote,B.quote_line,'1','M1'));
+  R.push(ortho([[300,804],[300,664],[700,664],[700,640]],'1','M0'));                 // part to quote_line
+  R.push(link(B.repair_job,B.payment,'1','M0'));
+  R.push(link(B.repair_job,B.job_part,'1','M0'));
+  R.push(link(B.part,B.store_part_stock,'1','M0'));
+  R.push(link(B.store_part_stock,B.inventory_txn,'1','M0'));
+  R.push(ortho([[200,866],[200,1030],[1050,1030],[1050,990],[1090,990]],'1','M0'));            // part → po_line
+  R.push(ortho([[250,804],[250,700],[1500,700],[1500,616]],'1','M0'));              // part → job_part
+  R.push(link(B.purchase_order,B.po_line,'1','M1'));
+  R.push(ortho([[1290,804],[1290,680],[1680,680],[1680,616]],'Z1','M0'));          // purchase_order → job_part
+  R.push(ortho([[1595,835],[1350,835]],'1','M0'));                                 // supplier → purchase_order
+  R.push(ortho([[1640,866],[1640,1045],[150,1045],[150,866]],'Z1','M0'));          // supplier → part (default)
+  root=gb;
+  // boxes on top of lines
+  svg.appendChild(gl);svg.appendChild(gb);
+  root=svg;R.forEach(f=>f());
+  // re-draw boxes on top
+  root=svg;Object.entries(B).forEach(([id,b])=>{const col=STORES[E[id][0]][1];
+    mk('rect',{x:b.x-b.w/2,y:b.y-b.h/2,width:b.w,height:b.h,rx:8,fill:'#fff',stroke:col,'stroke-width':3});
+    mk('rect',{x:b.x-b.w/2,y:b.y-b.h/2,width:10,height:b.h,fill:col});
+    txt(b.x+4,b.y+8,ename(id),{fs:21,fw:700,anchor:'middle',ff:PHYS?MONO:undefined});});
+  // relationship verbs, parent → child
+  [[302,205,'employs'],[950,205,'owns'],[1225,150,'schedules'],
+   [1300,280,'books'],[1530,310,'handles'],
+   [590,370,'takes in'],[760,340,'works on'],[1090,340,'undergoes'],[1450,370,'leads to'],
+   [610,480,'tracks'],[520,553,'generates'],[467,606,'itemizes'],[312,742,'appears on','start'],[1320,478,'receives'],[1320,580,'uses'],
+   [496,765,'holds','start'],[1214,765,'issues','end'],[1516,640,'is included in','start'],[1696,640,'supplies','start'],
+   [380,835,'appears in'],[612,912,'logs','start'],[216,950,'appears on','start'],
+   [1212,912,'contains','start'],[1472,835,'fulfills'],[1648,955,'provides','start']]
+   .forEach(([x,y,s,a])=>rel(x,y,s,{anchor:a}));
+  // audit note
+  txt(40,1074,'Not drawn: audit links to EMPLOYEE (FKs on the detail slides). Boxes on a container’s top edge have no line: DEVICE_MODEL values are copied into DEVICE at check-in; SCREEN_ACCESS holds the Owner’s per-role screen overrides.',{fs:17,fill:'#555'});
+}
+
+// =================== detail slides ===================
+const TWD=560,HD=44,RH=30;
+function table(id,x,y){const [st]=E[id],[sn,col]=STORES[st],cs=cols(id),h=HD+cs.length*RH+8;
+  mk('rect',{x,y,width:TWD,height:h,fill:'#fff',stroke:col,'stroke-width':2.5,rx:6});
+  mk('rect',{x,y,width:TWD,height:HD,fill:col,rx:6});mk('rect',{x,y:y+HD-8,width:TWD,height:8,fill:col});
+  txt(x+14,y+31,ename(id),{fs:23,fw:700,fill:'#fff',ff:MONO});
+  txt(x+TWD-12,y+30,st+' '+sn,{fs:17,fw:700,fill:'#fff',anchor:'end'});
+  cs.forEach((c,i)=>{const ry=y+HD+i*RH;
+    if(c[0].startsWith('PK'))mk('rect',{x:x+1.5,y:ry,width:TWD-3,height:RH,fill:'#fff6d6'});
+    if(i>0)mk('line',{x1:x+1.5,y1:ry,x2:x+TWD-1.5,y2:ry,stroke:'#e4e4e4'});
+    let [kk,...ref]=c[0].split(' ');
+    if(!PHYS)kk=kk.split(',').filter(k=>k!=='CK'&&k!=='IX').join(','); // logical: identifiers and keys only
+    txt(x+10,ry+21,kk,{fs:16,fw:700,fill:kk.includes('PK')?'#8a5a00':kk.includes('FK')?'#1f4e79':'#666'});
+    txt(x+100,ry+21,PHYS?c[1]:camel(c[1]),{fs:19,fw:c[0].startsWith('PK')?700:400,ff:MONO,fill:'#1a1a1a'});
+    if(PHYS)txt(x+315,ry+21,c[2],{fs:17,ff:MONO,fill:'#444'});            // logical: no data types
+    const rn={'appt.':'appointment','purch._order':'purchase_order','stock':'store_part_stock'}[ref.join(' ')]||ref.join(' ');
+    if(ref.length)txt(x+TWD-10,ry+21,'→ '+(PHYS?rn:rn.toUpperCase()),{fs:15,it:1,fill:'#1f4e79',anchor:'end'});
+    else if(c[4]===2)txt(x+TWD-10,ry+21,'derived · NN',{fs:14,fw:700,fill:'#b0503a',anchor:'end'});
+    else if(c[5])txt(x+TWD-10,ry+21,c[5],{fs:14,fw:700,fill:'#b0503a',anchor:'end'});
+    else if(c[3]&&PHYS)txt(x+TWD-10,ry+21,'NN',{fs:14,fw:700,fill:'#999',anchor:'end'});
+  });
+  return{x,y,w:TWD,h,row:n=>y+HD+cs.findIndex(c=>c[1]===n)*RH+RH/2};
+}
+function detail(n){
+  const T={},g={1:['Customers, devices, appointments, staff and stores','D1 Customers & Devices · D2 Appointments · D7 Staff & Stores'],
+    2:['Repair jobs','D3 Repair Jobs: the job, its status history, quotes and their parts, payment and parts used'],
+    3:['Parts, purchasing and suppliers','D4 Parts Inventory · D5 Purchase Orders · D6 Suppliers']}[n];
+  header(`QuickPhone — ${PHYS?'Physical':'Logical'} ERD detail ${n} of 3: ${g[0]}`,g[1]+'.   PK primary key · FK foreign key (→ table) · UK unique'+(PHYS?' · CK checked value list · NN not null':''));
+  const note=(x,y,lines)=>lines.forEach((s,i)=>txt(x,y+i*27,s,{fs:19,fill:i?'#444':'#1f4e79',fw:i?400:700}));
+  if(n==1)note(60,850,['Assumption to confirm with the owner',
+    'StoreID is each employee\'s home store. The Owner role sees both stores;',
+    'whether a Manager covers one store or both is still open.']);
+  if(n==2)note(1300,820,PHYS?['Derived columns (denormalized on purpose)',
+    'status = latest job_status_history row;',
+    'total_amount = labor + parts. Stored so queues',
+    'load fast and an approved quote cannot drift;',
+    'the application keeps them in step. The logical',
+    'ERD omits them (3NF).']
+   :['Kept in 3NF: no derived attributes',
+    'Current status is the latest JOB_STATUS_HISTORY',
+    'row and a quote total is LaborAmount +',
+    'PartsAmount, so neither is stored here. The',
+    'physical model stores both as documented',
+    'denormalizations.']);
+  if(n==3)note(60,830,PHYS?['Derived column (denormalized on purpose)',
+    'quantity_on_hand = sum of quantity_change in',
+    'inventory_txn for the store and part. Stored so',
+    'stock checks are instant; every change still writes',
+    'a transaction. The logical ERD omits it (3NF).']
+   :['Kept in 3NF: no derived attributes',
+    'Quantity on hand is the sum of QuantityChange in',
+    'INVENTORY_TXN for the store and part, so it is',
+    'not stored here. The physical model stores it as',
+    'a documented denormalization.']);
+  const gl=mk('g',{}),R=[];
+  const c1=60,c2=680,c3=1300,r1=620,r2=1240,r3=1860;
+  if(n==1){
+    T.store=table('store',c1,140);T.employee=table('employee',c1,500);
+    T.appointment=table('appointment',c2,330);
+    T.customer=table('customer',c3,140);T.device=table('device',c3,520);
+    T.device_model=table('device_model',c3,800);T.screen_access=table('screen_access',c2,620);
+    note(c2,890,['Lookup tables: no foreign-key line',
+      PHYS?'DEVICE_MODEL values are copied into device at check-in.':'DEVICE_MODEL values are copied into DEVICE at check-in.',
+      'Brand and model are unique together.',
+      'SCREEN_ACCESS: no row means the role keeps its default',
+      'access to that screen. Role and screen are unique together.']);
+    root=gl;
+    R.push(ortho([[c1,T.store.row('store_id')],[c1-30,T.store.row('store_id')],[c1-30,T.employee.row('store_id')],[c1,T.employee.row('store_id')]],'1','M0'));
+    R.push(ortho([[r1,T.store.row('store_id')],[650,T.store.row('store_id')],[650,T.appointment.row('store_id')],[c2,T.appointment.row('store_id')]],'1','M0'));
+    R.push(ortho([[r1,T.employee.row('employee_id')],[650,T.employee.row('employee_id')],[650,T.appointment.row('technician_id')],[c2,T.appointment.row('technician_id')]],'Z1','M0'));
+    R.push(ortho([[r3,T.customer.row('customer_id')],[r3+30,T.customer.row('customer_id')],[r3+30,T.device.row('customer_id')],[r3,T.device.row('customer_id')]],'1','M0'));
+    R.push(ortho([[c3,T.customer.row('customer_id')],[1270,T.customer.row('customer_id')],[1270,T.appointment.row('customer_id')],[r2,T.appointment.row('customer_id')]],'1','M0'));
+    const mid=(a,b)=>(a+b)/2;
+    VERBS=[[30,mid(T.store.row('store_id'),T.employee.row('store_id')),'employs'],
+     [650,mid(T.store.row('store_id'),T.appointment.row('store_id')),'schedules'],
+     [650,mid(T.appointment.row('technician_id'),T.employee.row('employee_id')),'handles'],
+     [1890,mid(T.customer.row('customer_id'),T.device.row('customer_id')),'owns'],
+     [1270,mid(T.customer.row('customer_id'),T.appointment.row('customer_id')),'books']];
+  }else if(n==2){
+    // REPAIR_JOB sits between its children so each line has a segment of its own for the verb.
+    T.job_status_history=table('job_status_history',c1,130);T.quote=table('quote',c1,500);T.quote_line=table('quote_line',c1,830);
+    T.repair_job=table('repair_job',c2,330);
+    T.payment=table('payment',c3,130);T.job_part=table('job_part',c3,450);
+    root=gl;const r=T.repair_job.row('repair_job_id'),c=id=>T[id].row('repair_job_id');
+    R.push(ortho([[c2,r],[650,r],[650,c('job_status_history')],[r1,c('job_status_history')]],'1','M1'));
+    R.push(ortho([[c2,r],[650,r],[650,c('quote')],[r1,c('quote')]],'1','M0'));
+    R.push(ortho([[r2,r],[1270,r],[1270,c('payment')],[c3,c('payment')]],'1','M0'));
+    R.push(ortho([[r2,r],[1270,r],[1270,c('job_part')],[c3,c('job_part')]],'1','M0'));
+    R.push(ortho([[c1,T.quote.row('quote_id')],[30,T.quote.row('quote_id')],[30,T.quote_line.row('quote_id')],[c1,T.quote_line.row('quote_id')]],'1','M1'));
+    VERBS=[[30,(T.quote.row('quote_id')+T.quote_line.row('quote_id'))/2,'itemizes'],[650,(r+c('job_status_history'))/2,'tracks'],[650,(r+c('quote'))/2,'generates'],
+     [1270,(r+c('payment'))/2,'receives'],[1270,(r+c('job_part'))/2,'uses']];
+  }else{
+    T.supplier=table('supplier',c1,140);T.part=table('part',c1,480);
+    T.store_part_stock=table('store_part_stock',c2,140);T.inventory_txn=table('inventory_txn',c2,430);
+    T.purchase_order=table('purchase_order',c3,140);T.po_line=table('po_line',c3,570);
+    root=gl;
+    R.push(ortho([[c1,T.supplier.row('supplier_id')],[c1-30,T.supplier.row('supplier_id')],[c1-30,T.part.row('default_supplier_id')],[c1,T.part.row('default_supplier_id')]],'Z1','M0'));
+    // supplier → purchase_order (x 1250) and store_part_stock → inventory_txn (x 1270) use separate verticals
+    R.push(ortho([[r1,T.supplier.row('supplier_id')],[650,T.supplier.row('supplier_id')],[650,115],[1250,115],[1250,T.purchase_order.row('supplier_id')],[c3,T.purchase_order.row('supplier_id')]],'1','M0'));
+    R.push(ortho([[r1,T.part.row('part_id')],[650,T.part.row('part_id')],[650,T.store_part_stock.row('part_id')],[c2,T.store_part_stock.row('part_id')]],'1','M0'));
+    R.push(ortho([[r2,T.store_part_stock.row('store_id')],[1270,T.store_part_stock.row('store_id')],[1270,T.inventory_txn.row('part_id')],[r2,T.inventory_txn.row('part_id')]],'1','M0'));
+    R.push(ortho([[r1,T.part.row('part_id')],[635,T.part.row('part_id')],[635,1010],[1285,1010],[1285,T.po_line.row('part_id')],[c3,T.po_line.row('part_id')]],'1','M0'));
+    R.push(ortho([[r3,T.purchase_order.row('purchase_order_id')],[r3+30,T.purchase_order.row('purchase_order_id')],[r3+30,T.po_line.row('purchase_order_id')],[r3,T.po_line.row('purchase_order_id')]],'1','M1'));
+    const mid=(a,b)=>(a+b)/2;
+    VERBS=[[30,mid(T.supplier.row('supplier_id'),T.part.row('default_supplier_id')),'provides'],
+     [650,mid(T.part.row('part_id'),T.store_part_stock.row('part_id')),'appears in'],
+     [960,115,'fulfills',0],
+     [1270,mid(T.store_part_stock.row('store_id'),T.inventory_txn.row('part_id')),'logs'],
+     [960,1010,'appears on',0],
+     [1890,mid(T.purchase_order.row('purchase_order_id'),T.po_line.row('purchase_order_id')),'contains']];
+  }
+  const svg=document.getElementById('s');svg.insertBefore(gl,svg.children[1]);
+  root=svg;R.forEach(f=>f());
+  // verbs sit on their lines; most are on vertical segments, so they are written along the line
+  VERBS.forEach(([x,y,s,rot])=>rel(x,y,s,{rot:rot!==0}));
+}
+
+// =================== full sheet (3040x1860, documents) ===================
+// Every table on one sheet with all attributes, for the submitted models document. Same tables, keys and
+// flows as the slide set. Lines are routed through the gutters between columns.
+// Coordinates below are written for 160 px gutters; gx() widens each gutter to 240 px (sheet 3040 px wide) so
+// both relationship names fit between the crow's feet.
+function full(){
+  const gx=x=>{const k=Math.max(0,Math.min(3,Math.floor((x-40)/720))),l=x-40-720*k;return l<=560?x+80*k:600+800*k+(l-560)*1.5;};
+  const ortho=(pts,a,b)=>window.ortho(pts.map(([x,y])=>[gx(x),y]),a,b), rel=(x,y,t,o)=>window.rel(gx(x),y,t,o);
+  header(PHYS?'QuickPhone — Physical ERD (complete): 19 tables with all keys and attributes':'QuickPhone — Logical ERD (complete): 19 entities with identifiers and keys',
+    'One diagram for the whole data model. Each line is named both ways: top or left from the "one" side, bottom or right back from the "many" side.   PK primary key · FK foreign key (→ table) · UK unique'+(PHYS?' · CK checked value list · NN not null · derived = denormalized':''));
+  const place=[['store',40,130],['employee',40,470],['supplier',40,920],['purchase_order',40,1240],
+    ['appointment',760,130],['customer',760,500],['device',760,820],
+    ['repair_job',1480,130],['job_status_history',1480,890],['quote',1480,1170],['po_line',1480,1520],
+    ['payment',2200,130],['job_part',2200,420],['part',2200,730],['store_part_stock',2200,1120],['inventory_txn',2200,1340],
+    ['device_model',40,1880],['screen_access',760,1880],['quote_line',1480,1880]];
+  const T={};place.forEach(([id,x,y])=>T[id]=table(id,gx(x),y));
+  const bot=id=>T[id].y+T[id].h, top=id=>T[id].y;
+  // store and employee (one store employs many employees)
+  ortho([[300,362],[300,470]],'1','M0')();rel(300,416,'employs',{anchor:'middle'});
+  // store schedules appointments; employee handles appointments (technician)
+  ortho([[600,200],[760,200]],'1','M0')();rel(680,200,'schedules');
+  ortho([[600,540],[680,540],[680,330],[760,330]],'Z1','M0')();rel(680,430,'handles',{rot:true});
+  // customer books appointments and owns devices
+  // books runs up the right-hand gutter, clear of the two EMPLOYEE lines that cross the column below APPOINTMENT
+  ortho([[1320,559],[1350,559],[1350,219],[1320,219]],'1','M0')();rel(1350,334,'books',{rot:true});
+  ortho([[1000,732],[1000,820]],'1','M0')();rel(1000,776,'owns');
+  // device undergoes repair jobs; appointment leads to repair job (optional)
+  ortho([[1320,880],[1400,880],[1400,494],[1480,494]],'1','M0')();rel(1400,690,'undergoes',{rot:true});
+  ortho([[1320,260],[1480,260]],'Z1','M0')();rel(1413,260,'leads to');
+  // repair job tracks history, generates quotes, receives payments, uses job parts
+  ortho([[1560,bot('repair_job')],[1560,top('job_status_history')]],'1','M1')();rel(1560,(bot('repair_job')+top('job_status_history'))/2,'tracks');
+  ortho([[1480,760],[1420,760],[1420,1320],[1480,1320]],'1','M0')();rel(1420,1030,'generates',{rot:true});
+  ortho([[2040,200],[2200,200]],'1','M0')();rel(2120,200,'receives');
+  ortho([[2040,500],[2200,500]],'1','M0')();rel(2120,500,'uses');
+  // part is used in job parts, appears in store stock and on PO lines; supplier provides parts
+  ortho([[2300,730],[2300,682]],'1','M0')();rel(2340,706,'is included in',{anchor:'start'});
+  ortho([[2300,1052],[2300,1120]],'1','M0')();rel(2340,1086,'appears in',{anchor:'start'});
+  ortho([[2300,1292],[2300,1340]],'1','M0')();rel(2340,PHYS?1316:1301,'logs',{anchor:'start'});
+  ortho([[2200,T.part.row('part_id')],[2140,T.part.row('part_id')],[2140,1600],[2040,1600]],'1','M0')();rel(2140,1250,'appears on',{rot:true});
+  ortho([[600,1146],[2170,1146],[2170,T.part.row('default_supplier_id')],[2200,T.part.row('default_supplier_id')]],'1','M0')();rel(900,1146,'provides');
+  // purchase orders fulfil from suppliers and contain PO lines
+  ortho([[300,1152],[300,1240]],'1','M0')();rel(340,1196,'fulfills',{anchor:'start'});
+  ortho([[600,1530],[1480,1530]],'1','M1')();rel(1040,1530,'contains');
+  // EMPLOYEE's other roles. Every foreign key is a relationship (SAD 8e Ch. 10, Step 4), so each gets its own line,
+  // routed through the gutter right of EMPLOYEE: upward to REPAIR_JOB, downward to the audit tables and PURCHASE_ORDER.
+  ortho([[600,580],[700,580],[700,408],[1480,408]],'Z1','M0')();rel(1000,408,'works on');                // assigned_tech_id (empty until assigned or claimed)
+  ortho([[600,610],[720,610],[720,446],[1480,446]],'Z1','M0')();rel(1200,446,'sends notification for');          // email_sent_by_id
+  ortho([[600,640],[750,640],[750,1098],[1480,1098]],'1','M0')();rel(1362,1098,'changes');               // changed_by_id
+  ortho([[600,670],[730,670],[730,1236],[1480,1236]],'Z1','M0')();rel(1200,1236,'decides');              // decision_by_id
+  ortho([[600,700],[710,700],[710,1489],[2200,1489]],'1','M0')();rel(1800,1489,'records');               // recorded_by_id
+  ortho([[600,725],[655,725],[655,1290],[600,1290]],'1','M0')();rel(655,980,'creates',{rot:true});      // created_by_id
+  ortho([[600,750],[620,750],[620,1330],[600,1330]],'Z1','M0')();rel(620,1230,'approves',{rot:true});   // approved_by_id
+  // Sprint 4: a quote itemizes into quote lines, and a part appears on quote lines. QUOTE_LINE sits in the bottom band;
+  // both lines run down the gutter right of the repair-job column and cross the order lines on the way.
+  ortho([[2040,T.quote.row('quote_id')],[2052,T.quote.row('quote_id')],[2052,T.quote_line.row('quote_id')],[2040,T.quote_line.row('quote_id')]],'1','M1')();rel(2052,1830,'itemizes',{rot:true});
+  ortho([[2200,T.part.row('part_id')],[2098,T.part.row('part_id')],[2098,T.quote_line.row('part_id')],[2040,T.quote_line.row('part_id')]],'1','M0')();rel(2098,1830,'appears on',{rot:true});
+  // a purchase order supplies the job parts that were waiting for it (JOB_PART.purchase_order_id, optional)
+  ortho([[480,1592],[480,1790],[2110,1790],[2110,640],[2200,640]],'Z1','M0')();rel(1300,1790,'supplies');
+  txt(40,2176,'Every foreign key is drawn as a relationship line. EMPLOYEE plays several roles: the technician assigned to (or claiming) a job or appointment, the sender of the pickup notification, and the person who changes a status, decides a quote, records a stock change, or creates or approves (a Manager) a purchase order.',{fs:16,fill:'#555'});
+  txt(40,2200,'DEVICE_MODEL and SCREEN_ACCESS have no foreign-key line to another table: device models are copied into DEVICE at check-in, and SCREEN_ACCESS rows override each role’s default access to a screen (updated_by_id is an audit link to EMPLOYEE).',{fs:17,fill:'#555'});
+}
+
+let VERBS=[];
+
+function render(){
+  const svg=document.getElementById('s');root=svg;
+  if(VIEW==='full'){W=3040;H=2210;svg.setAttribute('width',W);svg.setAttribute('height',H);svg.setAttribute('viewBox',`0 0 ${W} ${H}`);}
+  const st=document.createElement('style');st.textContent=`@page{size:${W}px ${H}px;margin:0}`;document.head.appendChild(st);
+  mk('rect',{x:0,y:0,width:W,height:H,fill:'#fff'});
+  if(VIEW==='full')full();else if(VIEW==='overview')overview();else detail(+VIEW);
+  document.title='done';
+}
+render();
+</script></body></html>

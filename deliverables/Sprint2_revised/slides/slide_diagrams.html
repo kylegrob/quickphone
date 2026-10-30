@@ -1,0 +1,221 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>html,body{margin:0;background:#fff;overflow:hidden}svg{display:block}text{font-family:'Segoe UI',Arial,sans-serif}</style>
+</head><body>
+<svg id="s" xmlns="http://www.w3.org/2000/svg" width="1680" height="945" viewBox="0 0 1680 945" font-family="Segoe UI, Arial, sans-serif"></svg>
+<script>
+// Slide-sized QuickPhone diagrams: ?d=dfd (Level 0 overview) or ?d=erd (core logical ERD).
+const NS='http://www.w3.org/2000/svg', S=document.getElementById('s');
+function mk(tag,a,p){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);(p||S).appendChild(e);return e;}
+function txt(x,y,s,o={},p){
+  const lines=String(s).split('\n'),fs=o.fs||12,lh=fs*1.2;
+  const a={x,y,'font-size':fs,'font-weight':o.fw||400,'text-anchor':o.anchor||'middle',fill:o.fill||'#222'};
+  if(o.it)a['font-style']='italic';
+  if(o.mono)a['font-family']='Consolas, monospace';
+  if(o.halo){a.stroke='#fff';a['stroke-width']=4;a['stroke-linejoin']='round';a['paint-order']='stroke';}
+  const t=mk('text',a,p);const y0=y-(lines.length-1)*lh/2+fs*0.35;
+  lines.forEach((l,i)=>{const ts=mk('tspan',{x,y:y0+i*lh},t);ts.textContent=l;});return t;
+}
+mk('rect',{x:0,y:0,width:1680,height:945,fill:'#ffffff'});
+const defs=mk('defs',{});
+const m=mk('marker',{id:'arr',viewBox:'0 0 10 8',refX:9.5,refY:4,markerWidth:10,markerHeight:8,markerUnits:'userSpaceOnUse',orient:'auto'},defs);
+mk('path',{d:'M0,0 L10,4 L0,8 z',fill:'#333'},m);
+
+// =============================== DFD ===============================
+function dfd(){
+  const C={ent:'#dce8f5',entB:'#1f4e79',proc:'#fff7de',procB:'#b8860b',store:'#e8f1e0',storeB:'#4d7a2e',line:'#333'};
+  const W=540,H=300,P={x:215,y:35,w:120,h:230},SX=380,SW=155,EX=8,EW=100,EH=62;
+  const arrow=(g,x1,y1,x2,y2)=>mk('line',{x1,y1,x2,y2,stroke:C.line,'stroke-width':1.6,'marker-end':'url(#arr)'},g);
+  function cell(cx,cy,sp){
+    const g=mk('g',{transform:`translate(${cx},${cy})`});
+    mk('rect',{x:0,y:0,width:W,height:H,rx:10,fill:'#fbfcfe',stroke:'#e3e9ef','stroke-width':1.2},g);
+    sp.ents.forEach(e=>{
+      const n=e.flows.length;
+      e.flows.forEach((f,i)=>{
+        const yy=n===1?e.y:e.y+(i===0?-9:9), x1=EX+EW, x2=P.x;
+        if(f.d==='in')arrow(g,x1,yy,x2,yy);else arrow(g,x2,yy,x1,yy);
+        const nl=f.l.split('\n').length, half=nl*13.2/2;
+        const above=(n===1)||i===0;
+        txt((x1+x2)/2+3, above?yy-5-half:yy+5+half, f.l,{fs:11,fill:'#333'},g);
+      });
+    });
+    sp.stores.forEach(s=>{
+      const a=P.x+P.w;
+      if(s.rw==='rw'){arrow(g,a,s.y-6,SX,s.y-6);arrow(g,SX,s.y+6,a,s.y+6);}
+      else if(s.rw==='w')arrow(g,a,s.y,SX,s.y);else arrow(g,SX,s.y,a,s.y);
+    });
+    sp.ents.forEach(e=>{
+      const y=e.y-EH/2;
+      mk('rect',{x:EX-4,y:y-4,width:EW,height:EH,fill:C.entB},g);
+      mk('rect',{x:EX,y,width:EW,height:EH,fill:C.ent,stroke:C.entB,'stroke-width':1.8},g);
+      if(e.dup)mk('line',{x1:EX+EW-14,y1:y+EH,x2:EX+EW,y2:y+EH-14,stroke:C.entB,'stroke-width':1.8},g);
+      txt(EX+EW/2,e.y,e.n,{fs:13,fw:700,fill:'#1a1a1a'},g);
+    });
+    mk('rect',{x:P.x,y:P.y,width:P.w,height:P.h,rx:12,fill:C.proc,stroke:C.procB,'stroke-width':2},g);
+    mk('line',{x1:P.x,y1:P.y+30,x2:P.x+P.w,y2:P.y+30,stroke:C.procB,'stroke-width':1.6},g);
+    txt(P.x+P.w/2,P.y+15,sp.num,{fs:14,fw:700},g);
+    txt(P.x+P.w/2,P.y+P.h/2+14,sp.name,{fs:15,fw:700,fill:'#1a1a1a'},g);
+    sp.stores.forEach(s=>{
+      const y=s.y-15, st={stroke:C.storeB,'stroke-width':1.8};
+      mk('rect',{x:SX,y,width:SW,height:30,fill:C.store},g);
+      mk('line',Object.assign({x1:SX,y1:y,x2:SX+SW,y2:y},st),g);
+      mk('line',Object.assign({x1:SX,y1:y+30,x2:SX+SW,y2:y+30},st),g);
+      mk('line',Object.assign({x1:SX,y1:y,x2:SX,y2:y+30},st),g);
+      mk('line',Object.assign({x1:SX+30,y1:y,x2:SX+30,y2:y+30},st),g);
+      if(s.dup)mk('line',Object.assign({x1:SX+6,y1:y,x2:SX+6,y2:y+30},st),g);
+      txt(SX+(s.dup?18:15),s.y,s.id,{fs:11.5,fw:700},g);
+      txt(SX+37,s.y,s.n,{fs:11.5,fw:700,anchor:'start',fill:'#1a1a1a'},g);
+    });
+  }
+  const FD='Front Desk\nStaff',TE='Repair\nTechnician',OW='Store\nOwner',MG='Store\nManager';
+  const st=(id,n,y,rw,dup)=>({id,n,y,rw,dup});
+  const N={D1:'Customers & Devices',D2:'Repair Jobs',D3:'Appointments',D4:'Parts Inventory',D5:'POs & Suppliers',D6:'Staff & Stores',D7:'Notification Log'};
+  const cols=[20,570,1120], rows=[15,320,625];
+  cell(cols[0],rows[0],{num:'1.0',name:'Check In\nDevice',
+    ents:[{n:FD,y:150,flows:[{d:'in',l:'Appointment request,\nintake details'},{d:'out',l:'Booking confirmation,\nclaim ticket & tag'}]}],
+    stores:[st('D6',N.D6,70,'r'),st('D3',N.D3,125,'rw'),st('D1',N.D1,180,'rw'),st('D2',N.D2,235,'w')]});
+  cell(cols[1],rows[0],{num:'2.0',name:'Diagnose\nDevice',
+    ents:[{n:TE,y:95,flows:[{d:'in',l:'Diagnosis & quote'},{d:'out',l:'Job queue &\nparts availability'}]},
+          {n:FD,y:215,dup:1,flows:[{d:'in',l:'Customer quote\ndecision'},{d:'out',l:'Quotes awaiting\ndecision'}]}],
+    stores:[st('D2',N.D2,115,'rw',1),st('D4',N.D4,190,'r')]});
+  cell(cols[2],rows[0],{num:'3.0',name:'Repair\nDevice',
+    ents:[{n:TE,y:150,dup:1,flows:[{d:'in',l:'Parts used &\ntest results'},{d:'out',l:'Job details &\nparts notice'}]}],
+    stores:[st('D2',N.D2,115,'rw',1),st('D4',N.D4,190,'rw',1)]});
+  cell(cols[0],rows[1],{num:'4.0',name:'Notify\nCustomer',
+    ents:[{n:FD,y:95,dup:1,flows:[{d:'in',l:'Final cost &\nsend instruction'},{d:'out',l:'Ready list &\nemail draft'}]},
+          {n:'Customer',y:215,flows:[{d:'out',l:'Completion email'}]}],
+    stores:[st('D6',N.D6,60,'r',1),st('D1',N.D1,115,'r',1),st('D2',N.D2,170,'rw',1),st('D7',N.D7,225,'w')]});
+  cell(cols[1],rows[1],{num:'5.0',name:'Release\nDevice',
+    ents:[{n:FD,y:150,dup:1,flows:[{d:'in',l:'ID check, payment\n& signature'},{d:'out',l:'Release\nconfirmation'}]}],
+    stores:[st('D1',N.D1,115,'r',1),st('D2',N.D2,190,'rw',1)]});
+  cell(cols[2],rows[1],{num:'6.0',name:'Replenish\nParts',
+    ents:[{n:OW,y:95,flows:[{d:'in',l:'PO approval\ndecision'},{d:'out',l:'POs awaiting\napproval'}]},
+          {n:MG,y:215,flows:[{d:'in',l:'PO request &\ndelivery details'},{d:'out',l:'Low stock, PO status\n& waiting jobs'}]}],
+    stores:[st('D4',N.D4,95,'rw',1),st('D2',N.D2,150,'rw',1),st('D5',N.D5,205,'rw')]});
+  cell(cols[0],rows[2],{num:'7.0',name:'Report Repair\nStatus',
+    ents:[{n:FD,y:95,dup:1,flows:[{d:'in',l:'Status enquiry'},{d:'out',l:'Job status details'}]},
+          {n:OW,y:215,dup:1,flows:[{d:'out',l:'Two-store overview'}]}],
+    stores:[st('D2',N.D2,65,'r',1),st('D4',N.D4,120,'r',1),st('D1',N.D1,175,'r',1),st('D7',N.D7,230,'r',1)]});
+  cell(cols[1],rows[2],{num:'8.0',name:'Maintain Shop\nRecords',
+    ents:[{n:MG,y:150,dup:1,flows:[{d:'in',l:'Staff, store, part\n& supplier details'},{d:'out',l:'Update\nconfirmation'}]}],
+    stores:[st('D6',N.D6,95,'rw',1),st('D4',N.D4,150,'rw',1),st('D5',N.D5,205,'rw',1)]});
+  // legend cell
+  const g=mk('g',{transform:`translate(${cols[2]},${rows[2]})`});
+  mk('rect',{x:0,y:0,width:W,height:H,rx:10,fill:'#ffffff',stroke:'#e3e9ef','stroke-width':1.2},g);
+  txt(20,26,'Gane & Sarson · Level 0 overview',{fs:14,fw:700,anchor:'start',fill:'#1f4e79'},g);
+  mk('rect',{x:16,y:46,width:44,height:28,fill:C.entB},g);mk('rect',{x:20,y:50,width:44,height:28,fill:C.ent,stroke:C.entB,'stroke-width':1.5},g);
+  txt(76,64,'External entity',{fs:12.5,anchor:'start'},g);
+  mk('rect',{x:20,y:92,width:44,height:32,rx:7,fill:C.proc,stroke:C.procB,'stroke-width':1.5},g);mk('line',{x1:20,y1:102,x2:64,y2:102,stroke:C.procB,'stroke-width':1.2},g);
+  txt(76,108,'Process',{fs:12.5,anchor:'start'},g);
+  mk('rect',{x:270,y:50,width:70,height:26,fill:C.store},g);['M0,0H70','M0,26H70','M0,0V26','M16,0V26'].forEach(d=>mk('path',{d,transform:'translate(270,50)',stroke:C.storeB,'stroke-width':1.5,fill:'none'},g));
+  txt(352,63,'Data store',{fs:12.5,anchor:'start'},g);
+  arrow(g,270,108,338,108);txt(352,108,'Data flow (one way)',{fs:12.5,anchor:'start'},g);
+  mk('rect',{x:20,y:140,width:44,height:28,fill:C.ent,stroke:C.entB,'stroke-width':1.5},g);mk('line',{x1:52,y1:168,x2:64,y2:156,stroke:C.entB,'stroke-width':1.5},g);
+  txt(76,154,'Duplicate entity',{fs:12.5,anchor:'start'},g);
+  mk('rect',{x:270,y:141,width:70,height:26,fill:C.store},g);['M0,0H70','M0,26H70','M0,0V26','M5,0V26','M20,0V26'].forEach(d=>mk('path',{d,transform:'translate(270,141)',stroke:C.storeB,'stroke-width':1.5,fill:'none'},g));
+  txt(352,154,'Duplicate store',{fs:12.5,anchor:'start'},g);
+  txt(20,200,'Arrow into a store = write · out of a store = read',{fs:12.5,anchor:'start',fill:'#333'},g);
+  txt(20,224,'Flow names condensed for the slide; full Level 0 in appendix',{fs:12.5,anchor:'start',fill:'#333'},g);
+  txt(20,248,'Balanced with the context diagram: same 5 external entities',{fs:12.5,anchor:'start',fill:'#333'},g);
+  txt(20,272,'7 data stores map to 23 ERD entities',{fs:12.5,anchor:'start',fill:'#333'},g);
+}
+
+// =============================== ERD ===============================
+function erd(){
+  const root=mk('g',{transform:'translate(0,20)'});
+  const COL={job:['#fef6dc','#c9971a'],cust:['#fdecef','#d0607a'],staff:['#fdeadb','#d9772f'],parts:['#e6f4e3','#4d9a4a'],buy:['#e3edf9','#3b6fb0']};
+  const E={};
+  const ent=(id,x,y,w,c,rows)=>{E[id]={x,y,w,h:28+20*rows.length+8,c,rows};};
+  ent('CUSTOMER',30,40,190,'cust',[['CustomerID','PK'],['Name'],['Phone'],['Email']]);
+  ent('APPOINTMENT',265,40,190,'cust',[['AppointmentID','PK'],['ScheduledAt']]);
+  ent('DEVICE',30,330,190,'cust',[['DeviceID','PK'],['Model'],['SerialOrIMEI']]);
+  ent('EMPLOYEE',500,40,190,'staff',[['EmployeeID','PK'],['Name'],['Role']]);
+  ent('STORE',760,40,190,'staff',[['StoreID','PK'],['StoreName']]);
+  ent('REPAIR_JOB',470,290,210,'job',[['RepairJobID','PK'],['TicketNumber'],['ReportedIssue'],['FinalCost'],['PickedUpAt']]);
+  ent('REPAIR_STATUS',30,640,190,'job',[['StatusID','PK'],['StatusName']]);
+  ent('QUOTE',265,640,190,'job',[['QuoteID','PK'],['TotalAmount'],['CustomerDecision']]);
+  ent('PAYMENT',500,640,190,'job',[['PaymentID','PK'],['Amount'],['PaymentMethod'],['PaymentStatus'],['PaidAt']]);
+  ent('NOTIFICATION',735,640,190,'job',[['NotificationID','PK'],['SentAt'],['DeliveryStatus']]);
+  ent('JOB_PART',760,320,190,'parts',[['JobPartID','PK'],['QuantityUsed']]);
+  ent('INVENTORY',1020,40,190,'parts',[['StoreID + PartID','PK/FK'],['QuantityOnHand'],['ReorderPoint']]);
+  ent('PART',1020,300,190,'parts',[['PartID','PK'],['PartName'],['DeviceModel']]);
+  ent('SUPPLIER',1460,40,190,'buy',[['SupplierID','PK'],['SupplierName']]);
+  ent('PURCHASE_ORDER',1460,190,190,'buy',[['PurchaseOrderID','PK'],['POStatus'],['OrderTotal']]);
+  ent('PO_LINE',1240,470,190,'buy',[['POLineID','PK'],['QtyOrdered'],['QtyReceived']]);
+  ent('PO_JOB',1460,470,190,'buy',[['PurchaseOrderID','PK/FK'],['RepairJobID','PK/FK']]);
+
+  // relationships: points, start mark, end mark, label [x,y,anchor]
+  const R=[
+    [[[125,156],[125,330]],'||','o<',['owns',135,245,'start']],
+    [[[220,80],[265,80]],'||','o<',['books',242,62,'middle']],
+    [[[360,116],[360,230],[515,230],[515,290]],'o|','o|',['creates',370,175,'start']],
+    [[[220,370],[470,370]],'||','o<',['has',345,360,'middle']],
+    [[[690,80],[760,80]],'o<','||',['works at',725,62,'middle']],
+    [[[590,136],[590,290]],'o|','o<',['repairs',600,215,'start']],
+    [[[800,116],[800,250],[650,250],[650,290]],'||','o<',['handles',810,185,'start']],
+    [[[950,85],[1020,85]],'||','o<',['stocks',985,67,'middle']],
+    [[[1115,300],[1115,136]],'||','o<',['stocked as',1125,220,'start']],
+    [[[680,358],[760,358]],'||','o<',['uses',720,340,'middle']],
+    [[[1020,358],[950,358]],'||','o<',['used in',985,340,'middle']],
+    [[[1555,116],[1555,190]],'||','o<',['fills',1565,153,'start']],
+    [[[900,40],[900,24],[1410,24],[1410,265],[1460,265]],'||','o<',['orders for',1300,36,'middle']],
+    [[[600,40],[600,8],[1435,8],[1435,230],[1460,230]],'||','o<',['approves',1300,-2,'middle']],
+    [[[1480,286],[1480,400],[1380,400],[1380,470]],'||','|<',['contains',1430,390,'middle']],
+    [[[1210,340],[1290,340],[1290,470]],'||','o<',['ordered as',1300,420,'start']],
+    [[[1600,286],[1600,470]],'||','o<',['covers',1610,380,'start']],
+    [[[680,405],[990,405],[990,600],[1555,600],[1555,546]],'||','o<',['waits on',1200,590,'middle']],
+    [[[480,426],[480,580],[125,580],[125,640]],'o<','||',['current status',300,570,'middle']],
+    [[[520,426],[520,615],[360,615],[360,640]],'||','o<',['receives',440,605,'middle']],
+    [[[595,426],[595,640]],'||','o<',['paid by',603,520,'start']],
+    [[[670,426],[670,615],[830,615],[830,640]],'||','o<',['triggers',678,520,'start']]
+  ];
+  const gl=mk('g',{},root), gm=mk('g',{},root), gt=mk('g',{},root);
+  function marks(E2,P2,type){ // E2 endpoint at box edge, P2 previous point
+    const dx=E2[0]-P2[0],dy=E2[1]-P2[1],L=Math.hypot(dx,dy),ux=dx/L,uy=dy/L,nx=-uy,ny=ux;
+    const at=t=>[E2[0]-ux*t,E2[1]-uy*t];
+    const bar=t=>{const p=at(t);mk('line',{x1:p[0]+nx*7,y1:p[1]+ny*7,x2:p[0]-nx*7,y2:p[1]-ny*7,stroke:'#222','stroke-width':1.8},gm);};
+    const circ=t=>{const p=at(t);mk('circle',{cx:p[0],cy:p[1],r:4.5,fill:'#fff',stroke:'#222','stroke-width':1.8},gm);};
+    const crow=()=>{const p=at(13);[[7],[0],[-7]].forEach(([k])=>mk('line',{x1:p[0],y1:p[1],x2:E2[0]+nx*k,y2:E2[1]+ny*k,stroke:'#222','stroke-width':1.8},gm));};
+    if(type==='||'){bar(6);bar(12);}
+    if(type==='o|'){bar(7);circ(17);}
+    if(type==='o<'){crow();circ(20);}
+    if(type==='|<'){crow();bar(18);}
+  }
+  R.forEach(([pts,a,b,lab])=>{
+    mk('path',{d:'M'+pts.map(p=>p.join(' ')).join(' L'),fill:'none',stroke:'#333','stroke-width':1.8},gl);
+    marks(pts[0],pts[1],a);marks(pts[pts.length-1],pts[pts.length-2],b);
+    txt(lab[1],lab[2],lab[0],{fs:11.5,it:1,fill:'#555',anchor:lab[3],halo:1},gt);
+  });
+  for(const id in E){const e=E[id],[bg,bd]=COL[e.c];
+    const g=mk('g',{},root);
+    mk('rect',{x:e.x,y:e.y,width:e.w,height:e.h,rx:6,fill:'#fff',stroke:bd,'stroke-width':2},g);
+    mk('path',{d:`M${e.x} ${e.y+28} V${e.y+6} Q${e.x} ${e.y} ${e.x+6} ${e.y} H${e.x+e.w-6} Q${e.x+e.w} ${e.y} ${e.x+e.w} ${e.y+6} V${e.y+28} Z`,fill:bg,stroke:bd,'stroke-width':2},g);
+    txt(e.x+e.w/2,e.y+14,id,{fs:13,fw:700,fill:'#1a1a1a'},g);
+    e.rows.forEach((r,i)=>{const y=e.y+28+10+i*20+4;
+      txt(e.x+10,y,r[0],{fs:12,anchor:'start',fill:'#222',fw:r[1]?600:400},g);
+      if(r[1])txt(e.x+e.w-10,y,r[1],{fs:10.5,fw:700,anchor:'end',fill:bd},g);
+    });
+  }
+  // legend + scope note
+  const L=mk('g',{transform:'translate(1000,660)'},root);
+  txt(0,0,'Crow’s foot cardinality',{fs:13.5,fw:700,anchor:'start',fill:'#1f4e79'},L);
+  const key=[['||','exactly one'],['o|','zero or one'],['o<','zero or many'],['|<','one or many']];
+  key.forEach(([t,l],i)=>{const x=(i%2)*300, y=30+Math.floor(i/2)*32;
+    mk('line',{x1:x,y1:y,x2:x+56,y2:y,stroke:'#333','stroke-width':1.8},L);
+    const sv=gm; marks.call(null,[x+56,y],[x,y],t); // drawn into gm then moved
+    txt(x+70,y,l,{fs:12.5,anchor:'start'},L);
+  });
+  // move legend marks (last appended to gm) into legend group, preserving coordinates relative to legend
+  const lastMarks=[...gm.childNodes].slice(-countMarks(key));
+  lastMarks.forEach(n=>L.appendChild(n));
+  function countMarks(k){return k.reduce((s,[t])=>s+({'||':2,'o|':2,'o<':4,'|<':4})[t],0);}
+  txt(0,112,'Core entities shown; the full ERD has 23. Also includes ROLE, STATUS_HISTORY,',{fs:12,anchor:'start',fill:'#555'},L);
+  txt(0,130,'JOB_NOTE, REPAIR_APPROVAL, EMAIL_TEMPLATE and INVENTORY_TRANSACTION.',{fs:12,anchor:'start',fill:'#555'},L);
+  const sw=[['cust','Customer'],['job','Repair job'],['staff','Staff & stores'],['parts','Parts'],['buy','Purchasing']];
+  sw.forEach(([c,l],i)=>{const x=i*126;mk('rect',{x,y:150,width:16,height:14,rx:3,fill:COL[c][0],stroke:COL[c][1],'stroke-width':1.5},L);txt(x+22,157,l,{fs:12,anchor:'start'},L);});
+}
+
+const which=new URLSearchParams(location.search).get('d')||'dfd';
+(which==='erd'?erd:dfd)();
+document.title='done';
+</script></body></html>

@@ -1,0 +1,707 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+html,body{margin:0;background:#fff;overflow:hidden}
+svg{display:block}
+text{font-family:'Segoe UI',Arial,sans-serif}
+</style></head>
+<body><svg id="s" xmlns="http://www.w3.org/2000/svg"></svg>
+<script>
+// QuickPhone DFDs, slide edition (Sprint 3 rev. 2). One spec, two views: ?v=log|phys, ?d=<diagram>.
+// Built for 16:9 slides (1920x1080): labels >= 19px, process names 25px. Every entity and data store is drawn
+// once per diagram. The 7 data stores match the ERD exactly: each store lists the entities it holds.
+// Level 0 is shown whole (d=level0, a large poster for documents/PDF) and in three readable parts (l0a, l0b, l0c).
+const NS='http://www.w3.org/2000/svg', MONO="Consolas,'Courier New',monospace";
+const Q=new URLSearchParams(location.search), PHYS=Q.get('v')!=='log';
+const C={ent:'#dce8f5',entB:'#1f4e79',proc:'#fff7de',procB:'#b8860b',man:'#f0f0f0',manB:'#666',
+  store:'#e8f1e0',storeB:'#4d7a2e',line:'#333',hmb:'#c0392b'};
+const TY=100;
+let svg, root, PENDING=null, SEGS=[];
+const pick=x=>Array.isArray(x)?(PHYS?x[1]:x[0]):x;
+const keep=o=>!(o.phys&&!PHYS)&&!(o.log&&PHYS);
+function segHitsRect(a,b,r,pad){const x0=r.x-pad,y0=r.y-pad,x1=r.x+r.width+pad,y1=r.y+r.height+pad;
+  let t0=0,t1=1;const dx=b[0]-a[0],dy=b[1]-a[1];
+  for(const [p,q] of [[-dx,a[0]-x0],[dx,x1-a[0]],[-dy,a[1]-y0],[dy,y1-a[1]]]){
+    if(p===0){if(q<0)return false;continue;}const r2=q/p;
+    if(p<0){if(r2>t1)return false;if(r2>t0)t0=r2;}else{if(r2<t0)return false;if(r2<t1)t1=r2;}}
+  return true;}
+// Store-flow labels are placed last: each slides along its own line (and to either side) to the spot touching
+// the fewest nodes, labels and other flows' lines.
+function placeLabels(N,scope,group){
+  const pad=4,boxes=[];
+  const hit=(a,b)=>a.x<b.x+b.width+pad&&b.x<a.x+a.width+pad&&a.y<b.y+b.height+pad&&b.y<a.y+a.height+pad;
+  Object.values(N).forEach(n=>{const b=bounds(n);boxes.push({x:b.l,y:b.t,width:b.r-b.l,height:b.b-b.t});});
+  [...scope.querySelectorAll(':scope > text')].forEach(t=>boxes.push(t.getBBox()));
+  const ts=[0.5,0.42,0.58,0.34,0.66,0.26,0.74,0.18,0.82,0.12,0.88];
+  PENDING.sort((a,b)=>Math.hypot(a.p2[0]-a.p1[0],a.p2[1]-a.p1[1])-Math.hypot(b.p2[0]-b.p1[0],b.p2[1]-b.p1[1]));
+  PENDING.forEach(({f,p1,p2})=>{let best=null,bestS=1e9;
+    const L=Math.hypot(p2[0]-p1[0],p2[1]-p1[1])||1,nx=-(p2[1]-p1[1])/L,ny=(p2[0]-p1[0])/L;
+    search: for(const off of [0,16,-16,30,-30])for(const t of ts){
+      const x=p1[0]+(p2[0]-p1[0])*t+nx*off,y=p1[1]+(p2[1]-p1[1])*t+ny*off;
+      const el=txt(x,y,f.label,{fs:f.fs||FS,halo:1},group),bb=el.getBBox();
+      const s=10*boxes.filter(b=>hit(bb,b)).length+SEGS.filter(g=>g.f!==f&&segHitsRect(g.a,g.b,bb,2)).length+(off?0.5:0);
+      if(s<bestS){if(best)best.el.remove();best={el,bb};bestS=s;}else el.remove();
+      if(s===0)break search;}
+    boxes.push(best.bb);});
+}
+let FS=19;
+function mk(tag,a,p){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);(p||root).appendChild(e);return e;}
+function txt(x,y,s,o={},p){
+  const lines=String(s).split('\n'), fs=o.fs||20, lh=fs*1.18;
+  const a={'font-size':fs,'font-weight':o.fw||400,'text-anchor':o.anchor||'middle',fill:o.fill||'#222'};
+  if(o.ff)a['font-family']=o.ff;
+  if(o.it)a['font-style']='italic';
+  if(o.halo){a.stroke='#fff';a['stroke-width']=7;a['stroke-linejoin']='round';a['paint-order']='stroke';}
+  const t=mk('text',a,p);
+  const y0=y-(lines.length-1)*lh/2+fs*0.35;
+  lines.forEach((l,i)=>{const ts=mk('tspan',{x,y:y0+i*lh},t);ts.textContent=l;});
+  return t;
+}
+// ---------- node builders ----------
+const E=(id,x,y,label,o={})=>({id,type:'entity',x,y,w:o.w||250,h:o.h||130,label});
+const P=(id,x,y,num,label,o={})=>({id,type:'process',x,y,w:o.w||320,h:o.h||(PHYS?172:160),num,label,fs:o.fs,impl:o.impl,manual:o.manual,phys:o.phys,log:o.log});
+const STORE={
+ d1:['D1','Customers & Devices','customer, device'],
+ d2:['D2','Appointments','appointment'],
+ d3:['D3','Repair Jobs','repair_job, job_status_history,\nquote, payment, job_part'],
+ d4:['D4','Parts Inventory','part, store_part_stock,\ninventory_txn'],
+ d5:['D5','Purchase Orders','purchase_order, po_line'],
+ d6:['D6','Suppliers','supplier'],
+ d7:['D7','Staff & Stores','store, employee']};
+const S=(id,x,y,h,o={})=>{const [num,label,tables]=STORE[id];return {id,type:'store',x,y,w:o.w||440,h,num,label,tables};};
+const F=(from,to,label,o={})=>Object.assign({from,to,label},o);
+
+function bounds(n){const hw=n.w/2,hh=n.h/2;
+  if(n.type==='entity')return{l:n.x-hw-8,r:n.x+hw,t:n.y-hh-8,b:n.y+hh};
+  return{l:n.x-hw,r:n.x+hw,t:n.y-hh,b:n.y+hh};}
+function exitPt(n,P,Q){const b=bounds(n),dx=Q[0]-P[0],dy=Q[1]-P[1];let s=Infinity;
+  if(dx>0)s=Math.min(s,(b.r-P[0])/dx);if(dx<0)s=Math.min(s,(b.l-P[0])/dx);
+  if(dy>0)s=Math.min(s,(b.b-P[1])/dy);if(dy<0)s=Math.min(s,(b.t-P[1])/dy);
+  return[P[0]+s*dx,P[1]+s*dy];}
+
+function drawNode(n){const hw=n.w/2,hh=n.h/2;
+  if(n.type==='entity'){
+    mk('rect',{x:n.x-hw-8,y:n.y-hh-8,width:n.w,height:n.h,fill:C.entB});
+    mk('rect',{x:n.x-hw,y:n.y-hh,width:n.w,height:n.h,fill:C.ent,stroke:C.entB,'stroke-width':2.5});
+    txt(n.x,n.y,n.label,{fs:27,fw:700,fill:'#1a1a1a'});
+  }else if(n.type==='process'){
+    const fill=n.manual?C.man:C.proc, st=n.manual?C.manB:C.procB;
+    mk('rect',{x:n.x-hw,y:n.y-hh,width:n.w,height:n.h,rx:16,fill,stroke:st,'stroke-width':2.5});
+    mk('line',{x1:n.x-hw,y1:n.y-hh+40,x2:n.x+hw,y2:n.y-hh+40,stroke:st,'stroke-width':2});
+    txt(n.x,n.y-hh+20,n.num,{fs:22,fw:700});
+    let ib=0;
+    if(n.impl&&PHYS){const nl=n.impl.split('\n').length;ib=12+nl*19;
+      mk('line',{x1:n.x-hw,y1:n.y+hh-ib,x2:n.x+hw,y2:n.y+hh-ib,stroke:st,'stroke-width':1.5});
+      txt(n.x,n.y+hh-ib/2,n.impl,{fs:16,it:1,fill:n.manual?'#444':'#6b5410'});}
+    txt(n.x,(n.y-hh+40+n.y+hh-ib)/2,n.label,{fs:n.fs||25,fw:700,fill:'#1a1a1a'});
+  }else{
+    mk('rect',{x:n.x-hw,y:n.y-hh,width:n.w,height:n.h,fill:C.store});
+    const st={stroke:C.storeB,'stroke-width':2.5};
+    mk('line',Object.assign({x1:n.x-hw,y1:n.y-hh,x2:n.x+hw,y2:n.y-hh},st));
+    mk('line',Object.assign({x1:n.x-hw,y1:n.y+hh,x2:n.x+hw,y2:n.y+hh},st));
+    mk('line',Object.assign({x1:n.x-hw,y1:n.y-hh,x2:n.x-hw,y2:n.y+hh},st));
+    mk('line',Object.assign({x1:n.x-hw+62,y1:n.y-hh,x2:n.x-hw+62,y2:n.y+hh},st));
+    txt(n.x-hw+31,n.y,n.num,{fs:23,fw:700});
+    const tb=PHYS?n.tables:n.tables.toUpperCase();
+    const tall=n.h>=100, ty=tall?n.y-hh+26:n.y-12;
+    // Physical store names say how the store is implemented (SAD 8e Ch. 9 Step 1): tables in the PostgreSQL database
+    // A name too wide for the visible part of the box goes onto two lines or shrinks, never below 19 px.
+    const SA={fs:22,fw:700,anchor:'start',fill:'#1a1a1a'};let dy=0;
+    const sn=txt(n.x-hw+78,ty,PHYS?'PostgreSQL: '+n.label:n.label,SA);
+    if(PHYS){const av=Math.min(n.x+hw,+svg.getAttribute('width')-12)-(n.x-hw+78),len=sn.getComputedTextLength();
+      if(len*19/22>av){sn.remove();const y2=tall?ty+13:n.y-14;txt(n.x-hw+78,y2,'PostgreSQL:\n'+n.label,SA);dy=tall?26:y2+36-(ty+26);}
+      else if(len>av)sn.setAttribute('font-size',Math.max(19,Math.floor(22*av/len)));}
+    txt(n.x-hw+78,ty+26+dy+(tb.split('\n').length-1)*10,tb,{fs:16,anchor:'start',fill:'#2e5a1c',ff:MONO});
+  }}
+
+function entry(n,p){const b=bounds(n);
+  if(n.type==='store')return[p[0]<n.x?n.x-n.w/2:n.x+n.w/2,p[1]];
+  if(p[0]>=b.l&&p[0]<=b.r)return[p[0],p[1]<n.y?b.t:b.b];
+  return[p[0]<n.x?b.l:b.r,p[1]];}
+function drawRoute(f,N){const A=N[f.from],B=N[f.to],w=f.pts;
+  const pts=[entry(A,w[0]),...w,entry(B,w[w.length-1])];
+  mk('polyline',{points:pts.map(q=>q.join(',')).join(' '),fill:'none',stroke:C.line,'stroke-width':2.2,'marker-end':'url(#arr)'});
+  for(let i=1;i<pts.length;i++)SEGS.push({a:pts[i-1],b:pts[i],f});
+  if(f.label)txt(f.lp[0],f.lp[1],f.label,{fs:f.fs||FS,halo:1,anchor:f.la||'middle'});}
+
+function drawFlow(f,N){if(f.pts)return drawRoute(f,N);const A=N[f.from],B=N[f.to];let PA,PB;
+  if(f.y!=null){PA=[A.x,f.y];PB=[B.x,f.y];}
+  else if(f.x!=null){PA=[f.x,A.y];PB=[f.x,B.y];}
+  else{const ao=f.ao||[0,0],bo=f.bo||ao;PA=[A.x+ao[0],A.y+ao[1]];PB=[B.x+bo[0],B.y+bo[1]];}
+  const storeLink=(A.type==='store'||B.type==='store')&&f.x==null&&f.y==null;
+  const anc=(n,o,off)=>{if(!storeLink)return null;const lim=n.type==='store'?n.h/2-8:n.h/2-12;
+    return[o.x<n.x?n.x-n.w/2:n.x+n.w/2,n.y+Math.max(-lim,Math.min(lim,off?off[1]:0))];};
+  const sa=anc(A,B,f.ao),sb=anc(B,A,f.bo||f.ao);
+  const p1=sa||exitPt(A,PA,sb||PB),p2=sb||exitPt(B,PB,sa||PA);
+  mk('line',{x1:p1[0],y1:p1[1],x2:p2[0],y2:p2[1],stroke:C.line,'stroke-width':2.2,'marker-end':'url(#arr)'});SEGS.push({a:p1,b:p2,f});
+  if(!f.label)return;
+  if(PENDING&&f.x==null&&f.y==null){PENDING.push({f,p1,p2});return;}
+  const t=f.t??0.5,mx=p1[0]+(p2[0]-p1[0])*t,my=p1[1]+(p2[1]-p1[1])*t;
+  const fs=f.fs||FS,nl=f.label.split('\n').length,lh=fs*1.18;
+  const vert=Math.abs(p2[0]-p1[0])<2;
+  if(vert)return txt(mx+12,my+(f.ly||0),f.label,{fs,halo:1,anchor:'start'});
+  const ly=f.lpos==='below'?my+nl*lh/2+5:my-nl*lh/2-5;
+  txt(mx+(f.lx||0),ly,f.label,{fs,halo:1});
+}
+
+// Right-angle routing for slide diagrams whose processes sit in one column with the data stores to their right
+// (d.ortho). Each process–store flow leaves the process's right edge; it runs straight across when the store is level
+// with its port, otherwise it turns into its own vertical lane just left of the stores. Its name sits on the first
+// stretch beside the process, where no lane passes. The stores are moved and narrowed to make room for the lanes,
+// and the lane order is searched for the fewest crossings (SAD 8e Ch. 4).
+function textW(s,fs){const t=txt(-9999,-9999,s,{fs,halo:1});const w=t.getBBox().width;t.remove();return w;}
+function orthoRoute(d,N){
+  const LANE=18,GAP=22,isS=n=>n.type==='store',isP=n=>n.type==='process'&&!n.manual;
+  const fl=d.flows.filter(f=>keep(f)&&!f.pts&&f.x==null&&f.y==null&&N[f.from]&&N[f.to]&&
+    ((isS(N[f.from])&&isP(N[f.to]))||(isP(N[f.from])&&isS(N[f.to])))).map(f=>{const out=isP(N[f.from]);
+    return{f,p:N[out?f.from:f.to],s:N[out?f.to:f.from],out};});
+  const procs=[...new Set(fl.map(o=>o.p))];
+  fl.forEach(o=>{o.f.label=pick(o.f.label).replace(/\n/g,' ');});
+  procs.forEach(p=>{const fs=fl.filter(o=>o.p===p).sort((a,b)=>a.s.y-b.s.y||a.out-b.out);
+    const top=p.y-p.h/2+50,bot=p.y+p.h/2-(PHYS&&p.impl?44:16),n=fs.length,sp=n>1?Math.min(36,(bot-top)/(n-1)):0;
+    fs.forEach((o,i)=>o.py=(top+bot)/2+(i-(n-1)/2)*sp);});
+  const PE=Math.max(...procs.map(p=>p.x+p.w/2));
+  const LZ=Math.max(...fl.map(o=>textW(o.f.label,o.f.fs||FS)))+40;
+  // store ports: straight across when the store is level with the process port, else the nearest free slot. A port
+  // also keeps clear of every other flow's process port: its last stretch runs at that height, and if another flow's
+  // first stretch ran there too the two lines would merge into one (PG = clearance).
+  const PG=14,used=new Map();fl.forEach(o=>used.set(o.s,used.get(o.s)||[]));
+  const free=(s,y,o)=>y>=s.y-s.h/2+12&&y<=s.y+s.h/2-12&&used.get(s).every(v=>Math.abs(v-y)>=GAP)&&fl.every(q=>q===o||Math.abs(q.py-y)>=PG);
+  fl.sort((a,b)=>a.py-b.py).forEach(o=>{if(free(o.s,o.py,o)){o.sy=o.py;o.straight=1;used.get(o.s).push(o.py);}});
+  fl.filter(o=>!o.straight).sort((a,b)=>Math.min(Math.abs(a.py-a.s.y+a.s.h/2),Math.abs(a.py-a.s.y-a.s.h/2))-Math.min(Math.abs(b.py-b.s.y+b.s.h/2),Math.abs(b.py-b.s.y-b.s.h/2)))
+    .forEach(o=>{const s=o.s,lo=s.y-s.h/2+12,hi=s.y+s.h/2-12;let best=null;
+      for(let y=lo;y<=hi;y+=2)if(free(s,y,o)&&(best==null||Math.abs(y-o.py)<Math.abs(best-o.py)))best=y;
+      if(best==null)best=Math.max(lo,Math.min(hi,o.py));o.sy=best;used.get(s).push(best);});
+  // lane order with the fewest crossings (same rule as the complete Level 0)
+  const ln=fl.filter(o=>!o.straight);
+  const inside=(v,f)=>v>Math.min(f.py,f.sy)+1&&v<Math.max(f.py,f.sy)-1;
+  const cost=o=>{let c=0;for(let i=0;i<o.length;i++)for(let j=i+1;j<o.length;j++)c+=inside(o[j].py,o[i])+inside(o[i].sy,o[j]);return c;};
+  let seed=11,best=ln.slice(),bc=cost(best);const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+  for(let r=0;r<40&&ln.length>1;r++){const o=ln.slice();if(r)o.sort(()=>rnd()-0.5);else o.sort((a,b)=>Math.abs(a.py-a.sy)-Math.abs(b.py-b.sy));
+    let c=cost(o),imp=true;while(imp){imp=false;for(let i=0;i<o.length;i++)for(let j=i+1;j<o.length;j++){[o[i],o[j]]=[o[j],o[i]];const c2=cost(o);if(c2<c){c=c2;imp=true;}else[o[i],o[j]]=[o[j],o[i]];}}
+    if(c<bc){bc=c;best=o.slice();}}
+  best.forEach((o,i)=>o.lx=PE+LZ+i*LANE);
+  // stores fill the space right of the last lane
+  const SL=PE+LZ+Math.max(0,best.length-1)*LANE+(best.length?40:0),SR=d.W-24;
+  [...used.keys()].forEach(s=>{s.x=(SL+SR)/2;s.w=SR-SL;});
+  fl.forEach(o=>{const f=o.f,x=o.straight?(PE+SL)/2:o.lx;
+    f.pts=o.straight?[[x,o.py]]:(o.out?[[x,o.py],[x,o.sy]]:[[x,o.sy],[x,o.py]]);
+    f.lp=[o.p.x+o.p.w/2+14,o.py-14];f.la='start';});
+}
+
+// Human-machine boundary (SAD 8e Ch. 9, Step 2; Figs. 9-2, 9-4): a dashed line around each person who uses the
+// system's screens, so it separates human action from the automated processes. Manual processes are human action and
+// sit inside the Front Desk's line. No line around the Customer: the customer only receives a printout and an email.
+const NOUI=['cust'];
+function humanBoundaries(nodes,H){
+  const people=nodes.filter(n=>n.type==='entity'&&!NOUI.includes(n.id)),manual=nodes.filter(n=>n.manual);
+  people.forEach(n=>{const grp=[n].concat(n.id==='fd'?manual:[]);
+    let l=Math.min(...grp.map(g=>g.x-g.w/2-(g.type==='entity'?8:0)))-14,r=Math.max(...grp.map(g=>g.x+g.w/2))+14;
+    let t=Math.min(...grp.map(g=>g.y-g.h/2-(g.type==='entity'?8:0)))-14,b=Math.max(...grp.map(g=>g.y+g.h/2))+14;
+    l=Math.max(l,4);t=Math.max(t,-2);b=Math.min(b,H-4);
+    mk('rect',{x:l,y:t,width:r-l,height:b-t,rx:14,fill:'none',stroke:C.hmb,'stroke-width':3,'stroke-dasharray':'16 9'});});
+}
+// key at the right end of the subtitle row (drawn in page coordinates, above the diagram)
+function boundaryKey(W,hdr){const x=W-30;
+  const ends=hdr.map(t=>t?t.getBBox().x+t.getBBox().width:0); // [title row, subtitle row]
+  for(const words of ['Human–machine boundary (around each person who uses the system’s screens)','Human–machine boundary'])
+    for(const [row,y] of [[1,80],[0,42]]){
+      const t=txt(x,y,words,{fs:17,fw:700,anchor:'end',fill:C.hmb}),w=t.getComputedTextLength();
+      if(x-w-74>ends[row]+30){mk('line',{x1:x-w-74,y1:y,x2:x-w-14,y2:y,stroke:C.hmb,'stroke-width':3,'stroke-dasharray':'12 7'});return;}
+      t.remove();}
+}
+
+function legend(x,y){
+  const W=640,H=PHYS?250:150;
+  mk('rect',{x,y,width:W,height:H,fill:'#fff',stroke:'#999','stroke-width':1.5});
+  txt(x+18,y+28,PHYS?'Physical DFD symbols (Gane and Sarson)':'Logical DFD symbols (Gane and Sarson)',{fs:19,fw:700,anchor:'start'});
+  const c2=x+300;
+  mk('rect',{x:x+18,y:y+50,width:52,height:34,fill:C.entB});mk('rect',{x:x+24,y:y+56,width:52,height:34,fill:C.ent,stroke:C.entB,'stroke-width':2});
+  txt(x+92,y+72,'External entity',{fs:17,anchor:'start'});
+  mk('rect',{x:x+24,y:y+100,width:52,height:38,rx:8,fill:C.proc,stroke:C.procB,'stroke-width':2});
+  mk('line',{x1:x+24,y1:y+112,x2:x+76,y2:y+112,stroke:C.procB,'stroke-width':1.5});
+  txt(x+92,y+120,PHYS?'Automated process':'Process',{fs:17,anchor:'start'});
+  mk('rect',{x:c2,y:y+52,width:86,height:38,fill:C.store});['M0,0H86','M0,38H86','M0,0V38','M18,0V38'].forEach(d=>mk('path',{d,transform:`translate(${c2},${y+52})`,stroke:C.storeB,'stroke-width':2,fill:'none'}));
+  txt(c2+100,y+72,'Data store (ERD entities listed)',{fs:16,anchor:'start'});
+  mk('line',{x1:c2,y1:y+120,x2:c2+84,y2:y+120,stroke:C.line,'stroke-width':2.2,'marker-end':'url(#arr)'});
+  txt(c2+100,y+120,'Data flow (one way)',{fs:17,anchor:'start'});
+  if(!PHYS)return;
+  mk('rect',{x:x+24,y:y+160,width:52,height:38,rx:8,fill:C.man,stroke:C.manB,'stroke-width':2});
+  txt(x+92,y+180,'Manual process',{fs:17,anchor:'start'});
+  mk('line',{x1:c2,y1:y+180,x2:c2+84,y2:y+180,stroke:C.hmb,'stroke-width':3,'stroke-dasharray':'12 7'});
+  txt(c2+100,y+180,'Human–machine boundary',{fs:17,anchor:'start'});
+  txt(x+18,y+232,'Bottom band of a process = how it is implemented and by whom.',{fs:15,anchor:'start',fill:'#555',it:1});
+}
+
+// ===================== shared Level 0 flow definitions =====================
+// [from, to, [logical label, physical label], opts]. Context and every Level 0 view use these names, so they balance.
+// Physical names follow SAD 8e Ch. 9 (Figs. 9-2, 9-4): a flow to or from a person names its medium ("... Input Form",
+// "... Output Form", "... Printout", "... Email"); a flow to or from a data store is "PostgreSQL Record: <what is read>" or
+// "PostgreSQL Record Update: <what is written>". One name per line, one idea per name; the data flow dictionary lists the
+// data elements each name carries. {phys:1} = a flow the physical view adds because the medium is different.
+const L0={
+ // entities
+ e1a:['fd','p1',['Appointment request','Appointment Request Input Form']], e1b:['p1','fd',['Appointment schedule','Appointment Schedule Output Form']],
+ e2a:['fd','p2',['Check-in details','Check-In Input Form']], e2b:['p2','fd',['Customer search results','Customer Match Output Form']],
+ e2e:['p2','fd',['Device tag','Device Tag Printout']], e2d:['p2','cust',['Claim ticket','Claim Ticket Printout']],
+ e3a:['fd','p3',['Customer quote decision','Quote Decision Input Form']], e3b:['p3','fd',['Quotes awaiting decision','Pending Quotes Output Form']],
+ e3c:['tech','p3',['Diagnosis details','Diagnosis Input Form']], e3d:['p3','tech',['Diagnosis worklist','Diagnosis Output Form']],
+ e4a:['tech','p4',['Repair work details','Repair Work Input Form']], e4b:['p4','tech',['Repair worklist','Repair Work Output Form']],
+ e5a:['fd','p5',['Notification approval','Pickup Notification Input Form']], e5b:['p5','fd',['Pickup-ready job list','Ready Jobs Output Form']],
+ e5e:['p5','fd',['Notification preview','Email Preview Output Form']],
+ e5f:['tech','p5',['Technician send request','Send Notification Input Form']],
+ e5c:['p5','cust',['Pickup notification','Pickup Notification Email']],
+ e6a:['fd','p6',['Pickup lookup','Ticket Lookup Input Form']], e6b:['p6','fd',['Pickup job summary','Pickup Job Output Form']],
+ e6d:['fd','p6',['Release authorization','Release Input Form']], e6e:['p6','fd',['Release confirmation','Release Receipt Printout']],
+ e7a:['mgr','p7',['Purchase order request','PO Request Input Form']], e7e:['mgr','p7',['Placed order details','Order Placed Input Form']],
+ e7f:['mgr','p7',['Received quantities','Receiving Input Form']],
+ e7b:['p7','mgr',['Low-stock alert','Low-Stock Alert Output Form']], e7g:['p7','mgr',['Purchase order status','PO Status Output Form']],
+ e7h:['p7','mgr',['Jobs released from Awaiting Parts','Released Jobs Output Form']],
+ e7c:['mgr','p7',['Purchase order approval','PO Approval Input Form']], e7d:['p7','mgr',['Purchase orders awaiting approval','Pending POs Output Form']],
+ e8a:['fd','p8',['Status enquiry','Status Search Input Form']], e8b:['p8','fd',['Job status','Job Status Output Form']],
+ e8d:['own','p8',['Overview request','Dashboard Filter Input Form']], e8c:['p8','own',['Repair and inventory overview','Status Dashboard Output Form']],
+ e9a:['mgr','p9',['Staff, store, part and\nsupplier changes','Shop Records Input Form']], e9b:['p9','mgr',['Change confirmations','Shop Records Output Form']],
+ e9c:['mgr','p9','Inventory Import File',{phys:1}], e9d:['p9','mgr','Import Error Report',{phys:1}],
+ // stores
+ s1a:['d7','p1',['Store schedule','PostgreSQL Record: Store Hours and Technicians']], s1b:['d1','p1',['Returning customer record','PostgreSQL Record: Existing Customer']], s1c:['p1','d1',['New customer record','PostgreSQL Record: New Customer']],
+ s1d:['p1','d2',['Appointment updates','PostgreSQL Record Update: Appointment']], s1e:['d2','p1',['Booked appointments','PostgreSQL Record: Booked Appointments']],
+ s2a:['d1','p2',['Matching customer records','PostgreSQL Record: Matching Customers']], s2b:['p2','d1',['Intake records','PostgreSQL Record Update: Customer and Device']],
+ s2c:['d2','p2',["Today's appointment","PostgreSQL Record: Today's Appointment"]], s2d:['p2','d2',['Checked-in appointment','PostgreSQL Record Update: Appointment Checked In']],
+ s2e:['d7','p2',['Technician roster','PostgreSQL Record: Technician Roster']], s2g:['d7','p2',['Store contact details','PostgreSQL Record: Store Contact']],
+ s2f:['p2','d3',['New repair job','PostgreSQL Record: New Repair Job']],
+ s3d:['d2','p3',['Unassigned appointments','PostgreSQL Record: Unassigned Appointments']], s3e:['p3','d2',['Appointment claim','PostgreSQL Record Update: Appointment Claimed']],
+ s3a:['d3','p3',['Diagnosis queue','PostgreSQL Record: Diagnosis Queue']], s3b:['p3','d3',['Diagnosis results','PostgreSQL Record Update: Diagnosis and Quote']], s3c:['d4','p3',['Needed part details','PostgreSQL Record: Part Availability']],
+ s4a:['d3','p4',['Job in repair','PostgreSQL Record: Job in Repair']], s4b:['p4','d3',['Repair work record','PostgreSQL Record Update: Repair Work']],
+ s4c:['d4','p4',['On-hand stock','PostgreSQL Record: Stock on Hand']], s4d:['p4','d4',['Stock deduction','PostgreSQL Record Update: Stock Deduction']],
+ s5a:['d3','p5',['Ready job records','PostgreSQL Record: Ready Jobs']], s5b:['p5','d3',['Notified job record','PostgreSQL Record Update: Notice Sent']],
+ s5c:['d1','p5',['Customer email address','PostgreSQL Record: Customer Email Address']], s5d:['d7','p5',['Store pickup details','PostgreSQL Record: Store Pickup Details']],
+ s6a:['d3','p6',['Job awaiting pickup','PostgreSQL Record: Job Awaiting Pickup']], s6b:['p6','d3',['Pickup record','PostgreSQL Record Update: Payment and Release']], s6c:['d1','p6',['Customer identity','PostgreSQL Record: Customer Name']],
+ s7a:['d3','p7',['Jobs awaiting parts','PostgreSQL Record: Jobs Awaiting Parts']], s7b:['p7','d3',['Awaiting-parts job updates','PostgreSQL Record Update: Awaiting-Parts Jobs']],
+ s7c:['d4','p7',['Stock levels','PostgreSQL Record: Low-Stock Parts']], s7d:['p7','d4',['Stock received','PostgreSQL Record Update: Stock Received']],
+ s7e:['d5','p7',['Open purchase orders','PostgreSQL Record: Open Purchase Orders']], s7f:['p7','d5',['Purchase order records','PostgreSQL Record Update: Purchase Order']], s7g:['d6','p7',['Supplier details','PostgreSQL Record: Supplier for Order']],
+ s8a:['d3','p8',['Job status history','PostgreSQL Record: Job Status History']], s8b:['d1','p8',['Customer lookup','PostgreSQL Record: Customer Contact']], s8c:['d4','p8',['Stock summary','PostgreSQL Record: Stock Summary']], s8d:['d7','p8',['Store list','PostgreSQL Record: Store List']],
+ s9a:['d7','p9',['Current organization records','PostgreSQL Record: Staff and Stores']], s9b:['p9','d7',['Organization record updates','PostgreSQL Record Update: Staff and Stores']],
+ s9c:['d4','p9',['Current part catalog','PostgreSQL Record: Parts Catalog']], s9d:['p9','d4',['Part catalog updates','PostgreSQL Record Update: Parts Catalog']],
+ s9e:['d6','p9',['Current supplier records','PostgreSQL Record: Supplier List']], s9f:['p9','d6',['Supplier updates','PostgreSQL Record Update: Supplier List']]};
+const L=(k,o={})=>F(L0[k][0],L0[k][1],L0[k][2],Object.assign({k},L0[k][3]||{},o));
+const L0on=k=>keep(L0[k][3]||{});
+const PROC={p1:['1.0','Schedule\nAppointment','Django booking screen'],p2:['2.0','Register\nRepair Job','Django + label printer'],
+ p3:['3.0','Record\nDiagnosis','Django · bench ThinkPad'],p4:['4.0','Record Repair\nWork','Django · bench ThinkPad'],
+ p5:['5.0','Send Pickup\nNotification','Django → store email (SMTP)'],p6:['6.0','Record Device\nRelease','Django; card machine not linked'],
+ p7:['7.0','Process Purchase\nOrders','Django; orders placed off-system'],p8:['8.0','Report Repair\nStatus','Django dashboard'],
+ p9:['9.0','Maintain Shop\nRecords','Django admin + CSV import']};
+const PR=(id,x,y,o={})=>P(id,x,y,PROC[id][0],PROC[id][1],Object.assign({impl:PROC[id][2],fs:24},o));
+
+const D={};
+// ---------- Context ----------
+D.context={W:1920,H:980,title:'QuickPhone — Context Diagram',
+ sub:'The whole system as one process and the five external entities it serves; flows match the Level 0 diagram',
+ nodes:[E('fd',165,392,'Front Desk\nStaff',{h:750}),E('tech',165,887,'Repair\nTechnician',{h:175}),
+  P('p0',960,487,'0','Quick Phone\nRepair\nManagement\nSystem',{w:420,h:960,fs:34,impl:'Django web app on the\nstores\' ThinkPads; one\nPostgreSQL database'}),
+  E('cust',1700,75,'Customer',{w:300,h:130}),E('own',1700,235,'Store\nOwner',{w:300,h:110}),E('mgr',1700,652,'Store\nManager',{w:300,h:625})],
+ // One line per form, printout, email or file: exactly the entity flows of Level 0 (balancing, SAD 8e Ch. 4), each
+ // with one name. Lines are grouped by the Level 0 process they belong to, in workflow order.
+ flows:(()=>{const ctx=(e,keys,y0,dy)=>keys.filter(L0on).map((k,i)=>F(L0[k][0]===e?e:'p0',L0[k][1]===e?e:'p0',L0[k][2],{y:y0+i*dy}));
+  return [...ctx('fd',['e1a','e1b','e2a','e2b','e2e','e3a','e3b','e5a','e5b','e5e','e6a','e6b','e6d','e6e','e8a','e8b'],25,48),
+   ...ctx('tech',['e3c','e3d','e4a','e4b','e5f'],815,36),
+   ...ctx('cust',['e2d','e5c'],45,60),
+   ...ctx('own',['e8d','e8c'],215,45),
+   ...ctx('mgr',['e7b','e7a','e7d','e7c','e7e','e7g','e7f','e7h','e9a','e9c','e9b','e9d'],PHYS?370:375,PHYS?50:55)];})()};
+
+// ---------- Level 0 in four slide-sized parts ----------
+// Each part shows two or three Level 0 processes with every store and entity they use, each drawn once, routed at
+// right angles (orthoRoute). Four parts, not three: with straight routing, 1.0, 2.0, 5.0 and 6.0 do not fit one slide.
+const PXP=780,EXP=150,SXP=1660,BNDP=[592,-5,1316,975];
+const L0part=(procs,o)=>Object.assign({W:1920,H:980,boundary:BNDP,ortho:1,
+  sub:'Processes '+procs.map(p=>PROC[p][0]).sort().join(', ').replace(/, ([^,]*)$/,' and $1')+', with every data store and external entity they use, each drawn once.'},o,
+  {flows:[...o.flows,...Object.keys(L0).filter(k=>k[0]==='s'&&procs.some(p=>L0[k].includes(p))).map(k=>L(k))]});
+
+D.l0a=L0part(['p1','p2'],{title:'QuickPhone — Level 0 DFD (1 of 4): front counter, booking and check-in',boundary:[592,-5,1316,830],
+ nodes:[E('fd',EXP,390,'Front Desk\nStaff',{h:620}),E('cust',PXP,895,'Customer',{w:300,h:90}),PR('p1',PXP,170,{h:260}),PR('p2',PXP,600,{h:300}),
+  S('d2',SXP,120,150),S('d7',SXP,300,130),S('d1',SXP,515,240),S('d3',SXP,735,110)],
+ flows:[L('e1a',{y:130}),L('e1b',{y:200}),L('e2a',{y:520}),L('e2b',{y:580}),L('e2e',{y:640}),L('e2d',{x:PXP})]});
+
+D.l0b=L0part(['p3','p4'],{title:'QuickPhone — Level 0 DFD (2 of 4): repair bench',
+ nodes:[E('tech',EXP,360,'Repair\nTechnician',{h:520}),E('fd',EXP,800,'Front Desk\nStaff',{h:150}),
+  PR('p4',PXP,200,{h:280}),PR('p3',PXP,640,{h:420}),S('d4',SXP,170,160),S('d2',SXP,370,100),S('d3',SXP,690,380)],
+ flows:[L('e4b',{y:170}),L('e4a',{y:230}),L('e3d',{y:500}),L('e3c',{y:570}),L('e3b',{y:760}),L('e3a',{y:820})]});
+
+D.l0c=L0part(['p6','p5'],{title:'QuickPhone — Level 0 DFD (3 of 4): front counter, pickup notification and release',boundary:[592,-5,1316,830],
+ nodes:[E('fd',EXP,370,'Front Desk\nStaff',{h:580}),E('tech',EXP,790,'Repair\nTechnician',{h:140}),E('cust',PXP,895,'Customer',{w:300,h:90}),
+  PR('p6',PXP,200,{h:280}),PR('p5',PXP,600,{h:330}),S('d1',SXP,150,160),S('d3',SXP,470,360),S('d7',SXP,760,100)],
+ flows:[L('e6a',{y:110}),L('e6b',{y:170}),L('e6d',{y:230}),L('e6e',{y:290}),L('e5a',{y:520}),L('e5b',{y:580}),L('e5e',{y:640}),L('e5f',{y:755}),L('e5c',{x:PXP})]});
+
+D.l0d=L0part(['p9','p7','p8'],{title:'QuickPhone — Level 0 DFD (4 of 4): back office and reporting',
+ nodes:[E('mgr',EXP,315,'Store\nManager',{h:610}),E('own',EXP,733,'Store\nOwner',{h:86}),E('fd',EXP,895,'Front Desk\nStaff',{h:130}),
+  PR('p9',PXP,130,{h:240}),PR('p7',PXP,465,{h:390}),PR('p8',PXP,835,{h:270}),
+  S('d7',SXP,90,140),S('d6',SXP,230,90),S('d4',SXP,390,180),S('d5',SXP,560,120),S('d3',SXP,730,140),S('d1',SXP,900,90)],
+ flows:[L('e9a',{y:PHYS?40:75}),L('e9b',{y:PHYS?90:140}),L('e9c',{y:150}),L('e9d',{y:210}),
+  L('e7b',{y:300}),L('e7a',{y:340}),L('e7d',{y:380}),L('e7c',{y:420}),L('e7e',{y:460}),L('e7g',{y:500}),L('e7f',{y:540}),L('e7h',{y:580}),
+  L('e8d',{y:715}),L('e8c',{y:752}),L('e8a',{y:860}),L('e8b',{y:920})]});
+
+// ---------- Level 0, whole (poster for documents) ----------
+// The complete Level 0 is laid out by code, not by hand. Every line runs only horizontally and vertically, so lines
+// that must cross do so at right angles (SAD 8e Ch. 4: "minimize crossings ... cross at right angles"). Layout:
+//   Front Desk | counter processes | label zone | lanes | data stores | lanes | label zone | bench & back-office processes | Technician, Manager
+// Each process–store flow leaves its process horizontally, turns into its own vertical lane, and enters the store
+// horizontally. Its name sits on the first horizontal stretch, next to the process, where no other line passes, and
+// the "PostgreSQL Record: ..." name says which tables it touches. Lane order is chosen by search to give the fewest crossings.
+D.level0=(()=>{
+  // 5.0 sits last so its email drops straight down to the Customer and the Technician's send request can enter it
+  // from below; 2.0's claim ticket takes the gap on the left
+  const LEFT=['p1','p8','p6','p2','p5'],RIGHT=['p3','p4','p9','p7'],SO=['d2','d1','d7','d3','d4','d6','d5'];
+  const PS=42,SPS=24,LANE=19,LZ=375,EZ=360,PW=390,EW=250,SW=470,M=30,G=56;
+  const keys=Object.keys(L0).filter(L0on);
+  const isL=p=>LEFT.includes(p);
+  // ---- flows on the inner (store-facing) edge of each process ----
+  const sf=keys.filter(k=>k[0]==='s').map(k=>{const [a,b]=L0[k],out=a[0]==='p';return{k,p:out?a:b,s:out?b:a,out};});
+  const inner={},outer={};[...LEFT,...RIGHT].forEach(p=>{inner[p]=[];outer[p]=[];});
+  sf.forEach(f=>inner[f.p].push(f));
+  inner.p3.unshift({k:'e3b',p:'p3',fd:1},{k:'e3a',p:'p3',fd:1});           // Front Desk lines run across the top into 3.0
+  inner.p8.push({k:'e8d',p:'p8',s:'own',out:0},{k:'e8c',p:'p8',s:'own',out:1}); // Owner <-> 8.0 run in left lanes
+  const ent={fd:LEFT,tech:['p3','p4'],mgr:['p9','p7']};
+  keys.filter(k=>k[0]==='e').forEach(k=>{const [a,b]=L0[k],e=a[0]==='p'?b:a,p=a[0]==='p'?a:b;
+    if(ent[e]&&ent[e].includes(p)&&!(e==='fd'&&p==='p3'))outer[p].push({k,p});});
+  outer.p2.push({k:'e2d',p:'p2',cust:1});                                    // lowest port on 2.0's left edge
+  const si=s=>s==='own'?99:SO.indexOf(s);
+  [...LEFT,...RIGHT].forEach(p=>inner[p].sort((a,b)=>(a.fd?-1:b.fd?1:0)||si(a.s)-si(b.s)||(a.out-b.out)));
+  // ---- vertical layout ----
+  const ph=p=>Math.max(210,Math.max(inner[p].length,outer[p].length)*PS+112);
+  const Y0=20, nodes={};
+  let y=Y0;RIGHT.forEach(p=>{nodes[p]={y,h:ph(p)};y+=ph(p)+G;});
+  const fdLines=[Y0+60,Y0+60+PS];                                          // ports 0 and 1 of 3.0
+  y=fdLines[1]+70;LEFT.forEach(p=>{nodes[p]={y,h:ph(p)};y+=ph(p)+G;});
+  const bottom=Math.max(...[...LEFT,...RIGHT].map(p=>nodes[p].y+nodes[p].h));
+  // stretch the shorter column so both end level
+  [LEFT,RIGHT].forEach(col=>{const last=nodes[col[col.length-1]],gap=bottom-(last.y+last.h);
+    col.forEach((p,i)=>{nodes[p].y+=gap*i/(col.length-1);});});
+  const port=(p,i,n)=>{const nd=nodes[p],top=nd.y+50,bot=nd.y+nd.h-(PHYS?54:22);return top+(bot-top)/2+(i-(n-1)/2)*PS;};
+  [...LEFT,...RIGHT].forEach(p=>{inner[p].forEach((f,i)=>f.py=port(p,i,inner[p].length));outer[p].forEach((f,i)=>f.py=port(p,i,outer[p].length));});
+  // stores: as close as possible to the mean height of the ports that use them, in fixed order, no overlap
+  const sh=s=>{const n=Math.max(sf.filter(f=>f.s===s&&isL(f.p)).length,sf.filter(f=>f.s===s&&!isL(f.p)).length);return Math.max(96,n*SPS+48);};
+  const sTop=fdLines[1]+60;
+  let st=SO.map(s=>{const ps=sf.filter(f=>f.s===s).map(f=>f.py);return{s,h:sh(s),c:ps.reduce((a,b)=>a+b,0)/ps.length};});
+  let cur=sTop;st.forEach(o=>{o.y=Math.max(cur,o.c-o.h/2);cur=o.y+o.h+34;});
+  const over=cur-34-bottom;if(over>0)for(let i=st.length-1,lim=bottom;i>=0;i--){const o=st[i];if(o.y+o.h>lim)o.y=lim-o.h;lim=o.y-34;}
+  st.forEach(o=>nodes[o.s]={y:o.y,h:o.h});
+  // store ports, ordered by the height of the process port on each side. The set is shifted up or down (within the
+  // store) until no port sits level with another flow's process port on that side, where the two lines would merge.
+  SO.forEach(s=>['L','R'].forEach(sd=>{const fs=sf.filter(f=>f.s===s&&isL(f.p)===(sd==='L')).sort((a,b)=>a.py-b.py);
+    const side=sf.filter(f=>isL(f.p)===(sd==='L')),nd=nodes[s],room=Math.max(0,nd.h/2-14-(fs.length-1)/2*SPS);
+    const at=(f,i,dy)=>nd.y+nd.h/2+dy+(i-(fs.length-1)/2)*SPS;
+    const clear=dy=>fs.every((f,i)=>side.every(q=>q===f||Math.abs(q.py-at(f,i,dy))>=14));
+    let dy=0;for(let t=0;t<=room;t+=2){if(clear(t)){dy=t;break;}if(clear(-t)){dy=-t;break;}}
+    fs.forEach((f,i)=>f.sy=at(f,i,dy));}));
+  // where a store had no room to shift the whole set, move just the clashing port, by the least amount that keeps it
+  // 10 px from every other process port and store port on that side and inside the store
+  sf.forEach(f=>{const side=sf.filter(q=>q!==f&&isL(q.p)===isL(f.p)),nd=nodes[f.s];
+    const ok=y=>y>=nd.y+10&&y<=nd.y+nd.h-10&&side.every(q=>Math.abs(q.py-y)>=10&&(q.s!==f.s||Math.abs(q.sy-y)>=10));
+    if(ok(f.sy))return;for(let t=1;t<=SPS;t++){if(ok(f.sy-t)){f.sy-=t;return;}if(ok(f.sy+t)){f.sy+=t;return;}}});
+  // ---- horizontal layout ----
+  const routed={L:[],R:[]};[...LEFT,...RIGHT].forEach(p=>inner[p].filter(f=>!f.fd).forEach(f=>routed[isL(p)?'L':'R'].push(f)));
+  const Yb=bottom+200;
+  routed.L.find(f=>f.k==='e8d').sy=Yb-20;routed.L.find(f=>f.k==='e8c').sy=Yb+20;
+  // lane order with the fewest crossings: a is nearer the process than b; b's first leg crosses a's lane when b's
+  // process port lies inside a's vertical span; a's last leg crosses b's lane when a's store port lies inside b's span
+  const inside=(v,f)=>v>Math.min(f.py,f.sy)+1&&v<Math.max(f.py,f.sy)-1;
+  const cost=o=>{let c=0;for(let i=0;i<o.length;i++)for(let j=i+1;j<o.length;j++){const a=o[i],b=o[j];c+=inside(b.py,a)+inside(a.sy,b);}return c;};
+  let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+  ['L','R'].forEach(sd=>{let best=null,bc=1e9;
+    for(let r=0;r<60;r++){const o=routed[sd].slice();if(r)o.sort(()=>rnd()-0.5);else o.sort((a,b)=>Math.abs(a.py-a.sy)-Math.abs(b.py-b.sy));
+      let c=cost(o),imp=true;
+      while(imp){imp=false;for(let i=0;i<o.length;i++)for(let j=i+1;j<o.length;j++){[o[i],o[j]]=[o[j],o[i]];const c2=cost(o);
+        if(c2<c){c=c2;imp=true;}else[o[i],o[j]]=[o[j],o[i]];}}
+      if(c<bc){bc=c;best=o.slice();}}
+    routed[sd]=best;best.forEach((f,i)=>f.li=i);console.log(sd,'crossings',bc);});
+  const nL=routed.L.length,nR=routed.R.length;
+  const LPx=M+EW+EZ+PW/2,LPE=LPx+PW/2,laneL=i=>LPE+LZ+i*LANE;
+  const SL=laneL(nL-1)+40,SX=SL+SW/2,SE=SL+SW;
+  const RPL=SE+40+(nR-1)*LANE+LZ,RPx=RPL+PW/2,laneR=i=>RPL-LZ-i*LANE,RPR=RPL+PW;
+  const ERx=RPR+EZ+EW/2,XT=ERx+EW/2+40,W=XT+M+20;                            // XT: Technician -> 5.0 riser
+  // ---- nodes ----
+  const cy=n=>n.y+n.h/2;
+  const fdTop=Y0+30,fdBot=nodes[LEFT[LEFT.length-1]].y+nodes[LEFT[LEFT.length-1]].h;
+  const N=[E('fd',M+8+EW/2,(fdTop+fdBot)/2,'Front Desk\nStaff',{w:EW,h:fdBot-fdTop}),
+    E('tech',ERx,(nodes.p3.y+nodes.p4.y+nodes.p4.h)/2,'Repair\nTechnician',{w:EW,h:nodes.p4.y+nodes.p4.h-nodes.p3.y}),
+    E('mgr',ERx,(nodes.p9.y+nodes.p7.y+nodes.p7.h)/2,'Store\nManager',{w:EW,h:nodes.p7.y+nodes.p7.h-nodes.p9.y}),
+    E('cust',LPx,Yb,'Customer',{w:280,h:90}),E('own',RPx,Yb,'Store Owner',{w:300,h:90}),
+    ...LEFT.map(p=>PR(p,LPx,cy(nodes[p]),{w:PW,h:nodes[p].h})),...RIGHT.map(p=>PR(p,RPx,cy(nodes[p]),{w:PW,h:nodes[p].h})),
+    ...SO.map(s=>S(s,SX,cy(nodes[s]),nodes[s].h,{w:SW}))];
+  // ---- flows ----
+  const fl=[];
+  const gx=LPx-PW/2-EZ+30,cl=LPx-140;                                      // lane just right of Front Desk, clear of labels
+  [...LEFT,...RIGHT].forEach(p=>outer[p].forEach(f=>fl.push(f.cust?L(f.k,{pts:[[gx,f.py],[gx,Yb]],lp:[(gx+cl)/2,Yb-14]}):L(f.k,{y:f.py}))));
+  inner.p3.filter(f=>f.fd).forEach(f=>fl.push(L(f.k,{y:f.py})));
+  ['L','R'].forEach(sd=>routed[sd].forEach(f=>{const x=sd==='L'?laneL(f.li):laneR(f.li);
+    const pts=f.out?[[x,f.py],[x,f.sy]]:[[x,f.sy],[x,f.py]];
+    fl.push(L(f.k,{pts,lp:[sd==='L'?LPE+14:RPL-14,f.py-14],la:sd==='L'?'start':'end'}));}));
+  fl.push(L('e5c',{pts:[[LPx-60,bottom+20]],lp:[LPx-72,(bottom+Yb-45)/2],la:'end'}));
+  // the Technician's send request runs down the right edge, along the bottom and up into 5.0
+  const tY=(nodes.p3.y+nodes.p4.y+nodes.p4.h)/2;
+  fl.push(L('e5f',{pts:[[XT,tY],[XT,Yb-100],[LPx+100,Yb-100]],lp:[LPx+120,Yb-114],la:'start'}));
+  return{W,H:Yb+120,title:'QuickPhone — Level 0 DFD (complete)',
+    sub:'All nine processes, seven data stores and five external entities, each drawn once. Each line is one data flow; its name sits beside the process it leaves or enters.',
+    boundary:[LPx-PW/2-34,Y0-12,RPR+34-(LPx-PW/2-34),bottom+60-Y0,[SX,bottom+38]],legend:[W-420,Yb-60,0.62],nodes:N,flows:fl};
+})();
+
+// ===================== Level 1 diagrams =====================
+const EX=150,PX=780,SX=1660;
+const R3=[150,470,790],R4=[120,360,600,840],R5=[95,290,485,680,875];
+const BND=[592,-5,1316,975];
+D.l1_1={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 1.0 Schedule Appointment',
+ sub:'Optional appointment booking (FR01, UC-12). A walk-in needs no appointment; 2.0 pre-fills a job from one when it exists.',boundary:BND,ortho:1,
+ nodes:[E('fd',EX,470,'Front Desk\nStaff',{h:900}),
+  P('p11',PX,R3[0],'1.1','List Available\nTimes',{impl:'Django date picker',h:200}),
+  P('p12',PX,R3[1],'1.2','Record\nAppointment Booking',{impl:'Django booking form',h:200,fs:23}),
+  P('p13',PX,R3[2],'1.3','Record\nAppointment Change',{impl:'Django change form',h:200,fs:23}),
+  S('d7',SX,90,84,{}),S('d1',SX,330,84),S('d2',SX,650,300)],
+ flows:[F('fd','p11',['Requested date','Date Picker Input Form'],{y:120}),F('p11','fd',['Available times','Available Times Output Form'],{y:180}),
+  F('d7','p11',['Store schedule','PostgreSQL Record: Store Hours and Technicians'],{ao:[0,0],bo:[0,-50]}),F('d2','p11',['Booked appointments','PostgreSQL Record: Booked Appointments'],{ao:[0,-120],bo:[0,50]}),
+  F('p11','p12',['Chosen time slot','Chosen Time Slot'],{x:PX}),
+  F('fd','p12',['Booking request','Booking Input Form'],{y:440}),F('p12','fd',['Booking confirmation','Booking Confirmation Output Form'],{y:500}),
+  F('d1','p12',['Returning customer record','PostgreSQL Record: Existing Customer'],{ao:[0,-10],bo:[0,-60]}),F('p12','d1',['New customer record','PostgreSQL Record: New Customer'],{ao:[0,-20],bo:[0,20]}),
+  F('p12','d2',['Appointment booking','PostgreSQL Record: New Appointment'],{ao:[0,50],bo:[0,-60]}),
+  F('fd','p13',['Appointment change request','Appointment Change Input Form'],{y:760}),F('p13','fd',['Change confirmation','Change Confirmation Output Form'],{y:820}),
+  F('d2','p13',['Appointment to change','PostgreSQL Record: Appointment to Change'],{ao:[0,40],bo:[0,-40]}),F('p13','d2',['Changed appointment','PostgreSQL Record Update:\nAppointment Change'],{ao:[0,40],bo:[0,110]})]};
+
+D.l1_2={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 2.0 Register Repair Job',
+ sub:['From UC-01 and FR02–FR04. 2.1 finds a returning customer; 2.4 takes an optional device passcode and an optional technician.',
+  'From UC-01 and FR02–FR04. The passcode is optional (needed for camera repairs) and stored encrypted; the technician is optional.'],boundary:BND,ortho:1,
+ nodes:[E('fd',EX,430,'Front Desk\nStaff',{h:830}),E('cust',450,933,'Customer',{w:220,h:66}),
+  P('p21',PX,70,'2.1','Retrieve\nCustomer Record',{impl:'Django phone search',h:140}),P('p22',PX,250,'2.2','Save\nCustomer Record',{impl:'Django customer form',h:140}),
+  P('p23',PX,430,'2.3','Record Device\nDetails',{impl:'Django intake form',h:140}),P('p24',PX,645,'2.4','Create Repair\nJob',{impl:'Django; ticket no. generated',h:210}),
+  P('p25',PX,860,'2.5','Print Claim\nDocuments',{impl:'Django → label printer',h:140}),
+  S('d1',SX,250,330),S('d2',SX,560,84),S('d7',SX,695,110),S('d3',SX,860,130)],
+ flows:[F('fd','p21',['Customer phone number','Phone Search Input Form'],{y:40}),F('p21','fd',['Customer search results','Customer Match Output Form'],{y:100}),
+  F('d1','p21',['Matching customer records','PostgreSQL Record: Matching Customers'],{ao:[0,-20],bo:[0,-110]}),F('p21','p22',['Selected customer','Selected Customer'],{x:PX}),
+  F('fd','p22',['Customer details','Customer Details Input Form'],{y:250}),F('p22','d1',['Customer record','PostgreSQL Record Update: Customer'],{ao:[0,0],bo:[0,30]}),
+  F('p22','p23',['Customer ID','Customer ID'],{x:PX}),
+  F('fd','p23',['Device intake details','Device Intake Input Form'],{y:430}),F('p23','d1',['Device record','PostgreSQL Record: New Device'],{ao:[0,-20],bo:[0,130]}),
+  F('p23','p24',['Registered device','Device Intake Details'],{x:PX}),
+  F('fd','p24',['Device passcode','Passcode Input Form'],{y:605}),
+  F('fd','p24',['Technician assignment','Technician Assignment Input Form'],{y:675}),
+  F('d2','p24',["Today's appointment","PostgreSQL Record: Today's Appointment"],{ao:[0,0],bo:[0,-50]}),F('p24','d2',['Checked-in appointment','PostgreSQL Record Update: Appointment Checked In'],{ao:[0,-25],bo:[0,25]}),
+  F('d7','p24',['Technician roster','PostgreSQL Record: Technician Roster'],{ao:[0,0],bo:[0,10]}),F('p24','d3',['New repair job','PostgreSQL Record: New Repair Job'],{ao:[0,50],bo:[0,-30]}),
+  F('p24','p25',['Registered repair job','Registered Repair Job'],{x:PX}),
+  F('d7','p25',['Store contact details','PostgreSQL Record: Store Contact']),
+  F('p25','fd',['Device tag','Device Tag Printout'],{y:815}),
+  F('p25','cust',['Claim ticket','Claim Ticket Printout'],{pts:[[450,862]],lp:[535,848]})]};
+
+D.l1_3={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 3.0 Record Diagnosis',
+ sub:['From UC-02 and UC-03 (FR04–FR07). A technician works their own jobs and may claim an unassigned job or appointment (3.1).',
+  'From UC-02 and UC-03 (FR04–FR07). 3.1 lists the technician\'s jobs and the unassigned jobs and appointments they may claim.'],boundary:BND,ortho:1,
+ nodes:[E('tech',EX,385,'Repair\nTechnician',{h:750}),E('fd',EX,880,'Front Desk\nStaff',{h:160}),
+  P('p31',PX,110,'3.1','Select Repair\nJob',{impl:'Django job queue; claim button',h:210}),P('p32',PX,320,'3.2','Record Diagnosis\nFindings',{impl:'Django diagnosis form',fs:24}),
+  P('p33',PX,505,'3.3','Check Part\nStock',{impl:'Django stock lookup'}),P('p34',PX,690,'3.4','Record Repair\nQuote',{impl:'Django quote form'}),
+  P('p35',PX,880,'3.5','Record Quote\nDecision',{impl:'Django approval queue'}),
+  S('d2',SX,60,96),S('d4',SX,215,110),S('d3',SX,630,620)],
+ flows:[F('tech','p31',['Job to diagnose','Diagnosis Job Selection Input Form'],{y:60}),F('p31','tech',['Job queue','Job Queue Output Form'],{y:115}),
+  F('tech','p31',['Job claim','Job Claim Input Form'],{y:170}),
+  F('d3','p31',['Own and unassigned jobs','PostgreSQL Record: Open Jobs'],{ao:[0,-330],bo:[0,30]}),F('p31','d3',['Job claim record','PostgreSQL Record Update: Job Claimed']),
+  F('d2','p31',['Unassigned appointments','PostgreSQL Record: Unassigned Appointments']),F('p31','d2',['Appointment claim','PostgreSQL Record Update: Appointment Claimed']),
+  F('p31','p32',['Job under diagnosis','Job Under Diagnosis'],{x:PX}),
+  F('tech','p32',['Diagnosis','Diagnosis Findings Input Form'],{y:320}),F('p32','d3',['Diagnosis findings','PostgreSQL Record Update:\nDiagnosis Findings'],{ao:[0,0],bo:[0,-250]}),
+  F('p32','p33',['Parts needed','Parts Needed'],{x:PX}),
+  F('d4','p33',['Needed part details','PostgreSQL Record: Part Availability'],{ao:[0,20],bo:[0,-50]}),F('p33','tech',['Part availability','Part Availability Output Form'],{y:505}),
+  F('p33','d3',['Needed part record','PostgreSQL Record:\nPart Needed'],{ao:[0,20],bo:[0,-70]}),
+  F('p33','p34',['Part costs','Available Parts and Costs'],{x:PX}),
+  F('tech','p34',['Labor amount','Labor Amount Input Form'],{y:690}),F('p34','d3',['New quote','PostgreSQL Record: New Quote'],{ao:[0,0],bo:[0,100]}),
+  F('d3','p35',['Pending quote','PostgreSQL Record: Pending Quote'],{ao:[0,240],bo:[0,-30]}),F('p35','d3',['Recorded quote decision','PostgreSQL Record Update:\nQuote Decision'],{ao:[0,30],bo:[0,320]}),
+  F('p35','fd',['Quotes awaiting decision','Pending Quotes Output Form'],{y:845}),F('fd','p35',['Customer quote decision','Quote Decision Input Form'],{y:905})]};
+
+D.l1_4={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 4.0 Record Repair Work',
+ sub:'From UC-04 (FR06, FR07). A part used is deducted from stock automatically; a part request goes to the Manager, who orders it.',boundary:BND,ortho:1,
+ nodes:[E('tech',EX,485,'Repair\nTechnician',{h:940}),
+  P('p41',PX,R5[0],'4.1','Retrieve\nRepair Job',{impl:'Django job screen'}),P('p42',PX,R5[1],'4.2','Verify Part\nStock',{impl:'Django stock check'}),
+  P('p43',PX,R5[2],'4.3','Record Parts\nUsage',{impl:'Django; one transaction'}),P('p44',PX,R5[3],'4.4','Record Part\nRequest',{impl:'Django; listed for Manager'}),
+  P('p45',PX,R5[4],'4.5','Record Repair\nCompletion',{impl:'Django completion form'}),
+  S('d4',SX,240,130),S('d3',SX,690,520)],
+ flows:[F('tech','p41',['Job to repair','Repair Job Selection Input Form'],{y:65}),F('p41','tech',['Repair job details','Repair Job Output Form'],{y:125}),
+  F('d3','p41',['Job in repair','PostgreSQL Record: Job in Repair'],{ao:[0,-250],bo:[0,20]}),
+  F('tech','p42',['Parts used','Parts Used Input Form'],{y:290}),F('d4','p42',['On-hand stock','PostgreSQL Record: Stock on Hand'],{ao:[0,-20],bo:[0,0]}),
+  F('p42','p43',['Verified parts used','Verified Parts Used'],{x:PX-60}),
+  F('p42','p44',['Stock shortage','Stock Shortage'],{pts:[[PX-180,330],[PX-180,615]],lp:[PX-192,470],la:'end'}),
+  F('p43','d4',['Stock deduction','PostgreSQL Record Update:\nStock Deduction'],{ao:[0,-30],bo:[0,40]}),F('p43','d3',['Parts-used record','PostgreSQL Record: Parts Used'],{ao:[0,30],bo:[0,-160]}),
+  F('tech','p44',['Part request','Part Request Input Form'],{y:665}),
+  F('p44','d3',['Part request record','PostgreSQL Record:\nPart Request'],{ao:[0,0],bo:[0,-10]}),F('p44','tech',['Part request confirmation','Part Request Output Form'],{y:725}),
+  F('tech','p45',['Repair completion','Repair Completion Input Form'],{y:875}),F('p45','d3',['Completed repair record','PostgreSQL Record Update: Repair Completion'],{ao:[0,0],bo:[0,180]})]};
+
+D.l1_5={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 5.0 Send Pickup Notification',
+ sub:['From UC-05 (FR12). Never automatic: staff, or the Technician who finished the repair, click Send. The system fills in the address.',
+  'From UC-05 (FR12). Sent only on a click: Send Approval (staff) or Send Notification (Technician); the Technician never sees the address.'],boundary:BND,ortho:1,
+ nodes:[E('fd',EX,335,'Front Desk\nStaff',{h:650}),E('tech',EX,790,'Repair\nTechnician',{h:180}),E('cust',1700,880,'Customer',{w:260,h:90}),
+  P('p51',PX,R5[0],'5.1','List Jobs Ready\nfor Pickup',{impl:'Django ready-jobs list',fs:24}),P('p52',PX,R5[1],'5.2','Confirm\nFinal Cost',{impl:'Django; shows quote total'}),
+  P('p53',PX,R5[2],'5.3','Prepare Pickup\nNotification',{impl:'Django fixed-format email',fs:24}),P('p54',PX,R5[3],'5.4','Send Email\nMessage',{impl:'Django → store email (SMTP)'}),
+  P('p55',PX,R5[4],'5.5','Record\nNotification Result',{impl:'Django; automatic',fs:23}),
+  S('d3',SX,210,380),S('d1',SX,520,84),S('d7',SX,660,84)],
+ flows:[F('fd','p51',['Job to notify','Ready Job Selection Input Form'],{y:65}),F('p51','fd',['Pickup-ready job list','Ready Jobs Output Form'],{y:125}),
+  F('d3','p51',['Ready jobs not yet notified','PostgreSQL Record: Unnotified Ready Jobs'],{ao:[0,-10],bo:[0,-130]}),F('p51','p52',['Job awaiting final cost','Selected Ready Job'],{x:PX}),
+  F('fd','p52',['Final cost','Final Cost Input Form'],{y:290}),F('d3','p52',['Approved quote total','PostgreSQL Record: Approved Quote Total'],{ao:[0,-20],bo:[0,60]}),
+  F('p52','d3',['Confirmed final cost','PostgreSQL Record Update: Final Cost'],{ao:[0,30],bo:[0,120]}),F('p52','p53',['Confirmed ready job','Confirmed Ready Job'],{x:PX}),
+  F('d1','p53',['Customer email address','PostgreSQL Record: Customer Email Address'],{ao:[0,-15],bo:[0,0]}),F('d7','p53',['Store pickup details','PostgreSQL Record: Store Pickup Details'],{ao:[0,30],bo:[0,0]}),
+  F('p53','fd',['Notification preview','Email Preview Output Form'],{y:485}),F('p53','p54',['Prepared notification','Prepared Notification'],{x:PX}),
+  F('fd','p54',['Send instruction','Send Approval Input Form'],{y:640}),F('tech','p54',['Technician send request','Send Notification Input Form'],{y:735}),
+  F('p54','cust',['Pickup notification','Pickup Notification Email'],{pts:[[1700,745]],lp:[954,731],la:'start'}),
+  F('p54','p55',['Send result','Email Send Result'],{x:PX}),
+  F('p55','d3',['Notification record','PostgreSQL Record Update: Email Sent'])]};
+
+const P6=PHYS,PX6=900,PX7=840;
+D.l1_6={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 6.0 Record Device Release',
+ sub:['From UC-06 (FR08). Released only after payment is recorded. A device that could not be repaired owes nothing (no diagnostic fee).',
+  'From UC-06 (FR08). 6.5 and 6.6 are manual. An unrepairable device owes nothing (no diagnostic fee), so 6.3 settles it with no payment.'],boundary:[712,-5,1196,975],ortho:1,
+ nodes:[E('fd',P6?100:EX,480,'Front Desk\nStaff',{h:900,w:P6?170:250}),
+  P('p61',PX6,R4[0],'6.1','Retrieve\nPickup Job',{impl:'Django ticket or phone lookup',h:200}),P('p62',PX6,R4[1],'6.2','Record\nIdentity Check',{impl:'Django ID-checked tick',h:200}),
+  P('p63',PX6,R4[2],'6.3','Record\nPayment',{impl:'Django pickup form',h:200}),P('p64',PX6,R4[3],'6.4','Close Repair\nJob',{impl:'Django; on-screen signature',h:200}),
+  P('p65',390,R4[1]-10,'6.5','Check\nPhoto ID',{w:190,h:180,manual:1,phys:1,impl:'Manual · ID & ticket'}),
+  P('p66',390,R4[2]+10,'6.6','Take\nPayment',{w:190,h:180,manual:1,phys:1,impl:'Manual · card or cash'}),
+  S('d1',SX,110,84),S('d3',SX,590,620)],
+ flows:[F('fd','p61',['Pickup lookup','Ticket Lookup Input Form'],{y:90}),F('p61','fd',['Pickup job summary','Pickup Job Output Form'],{y:150}),
+  F('d1','p61',['Customer identity','PostgreSQL Record: Customer Name'],{ao:[0,0],bo:[0,-40]}),F('d3','p61',['Job awaiting pickup','PostgreSQL Record: Job Awaiting Pickup'],{ao:[0,-280],bo:[0,40]}),
+  F('p61','p62',['Job for pickup','Job for pickup'],{x:PX6,log:1}),F('fd','p62','Identity check result',{y:360,log:1}),
+  F('p61','p65','Pickup Identity Output Form',{phys:1,pts:[[390,195]],lp:[600,178]}),F('fd','p65','Photo ID and\nClaim Ticket',{y:360,phys:1}),F('p65','p62','ID Check Input Form',{y:360,phys:1}),
+  F('p62','p63',['Verified job','Verified Pickup Job'],{x:PX6}),
+  F('fd','p63','Payment details',{y:600,log:1}),
+  F('p62','p66','Amount Due Output Form',{phys:1,pts:[[PX6-200,425],[PX6-200,555]],lp:[PX6-212,490],la:'end'}),F('p66','p63','Payment Input Form',{y:600,phys:1}),
+  F('p63','d3',['Payment record','PostgreSQL Record: New Payment'],{ao:[0,0],bo:[0,10]}),F('p63','p64',['Settled job','Settled Job'],{x:PX6}),
+  F('fd','p64',['Customer signature','Signature Input Form'],{y:810}),F('p64','fd',['Release confirmation','Release Receipt Printout'],{y:870}),
+  F('p64','d3',['Job release record','PostgreSQL Record Update:\nJob Released'],{ao:[0,20],bo:[0,250]})]};
+
+D.l1_7={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 7.0 Process Purchase Orders',
+ sub:'From UC-08 to UC-10 (FR09, FR10). A Manager approves every order and places it with the supplier outside the system; nothing is ordered automatically.',boundary:[650,-5,1258,975],ortho:1,
+ nodes:[E('mgr',115,485,'Store\nManager',{w:170,h:940}),
+  P('p71',PX7,80,'7.1','List Parts\nto Order',{impl:'Django; alert at reorder point',h:160}),P('p72',PX7,270,'7.2','Record\nPurchase Order',{impl:'Django PO form',h:184}),
+  P('p73',PX7,460,'7.3','Record Purchase\nOrder Approval',{impl:'Django queue (Manager only)',h:160}),P('p74',PX7,640,'7.4','Record Order\nPlacement',{impl:'Django; ordered off-system',h:160}),
+  P('p75',PX7,858,'7.5','Record Parts\nReceipt',{impl:'Django receiving form',h:236}),
+  S('d4',SX,70,110),S('d6',SX,215,84),S('d5',SX,500,380),S('d3',SX,850,180)],
+ flows:[F('d4','p71',['Stock levels','PostgreSQL Record: Low-Stock Parts'],{ao:[0,0],bo:[0,-20]}),F('d3','p71',['Open part requests','PostgreSQL Record: Open Part Requests'],{ao:[0,-50],bo:[0,50]}),
+  F('p71','mgr',['Low-stock alert','Low-Stock Alert Output Form'],{y:80}),
+  F('mgr','p72',['Purchase order request','PO Request Input Form'],{y:270}),F('d6','p72',['Supplier details','PostgreSQL Record: Supplier for Order'],{ao:[0,0],bo:[0,-40]}),
+  F('p72','d5',['Submitted purchase order','PostgreSQL Record: New Purchase Order'],{ao:[0,0],bo:[0,-150]}),F('p72','d3',['Jobs linked to the order','PostgreSQL Record Update: Job Part Order'],{ao:[0,50],bo:[0,-60]}),
+  F('d5','p73',['Pending purchase orders','PostgreSQL Record: POs Pending Approval'],{ao:[0,-40],bo:[0,-30]}),F('p73','d5',['Purchase order decision record','PostgreSQL Record Update: PO Decision'],{ao:[0,10],bo:[0,20]}),
+  F('p73','mgr',['Purchase orders\nawaiting approval','Pending POs Output Form'],{y:435}),F('mgr','p73',['Purchase order approval','PO Approval Input Form'],{y:492}),
+  F('d5','p74',['Approved purchase orders','PostgreSQL Record: Approved POs'],{ao:[0,60],bo:[0,-30]}),F('p74','d5',['Ordered status','PostgreSQL Record Update: PO Placed'],{ao:[0,20],bo:[0,110]}),
+  F('mgr','p74',['Placed order details','Order Placed Input Form'],{y:612}),F('p74','mgr',['Purchase order status','PO Status Output Form'],{y:668}),
+  F('d5','p75',['Ordered purchase order lines','PostgreSQL Record: Ordered PO Lines'],{ao:[0,165],bo:[0,-50]}),F('p75','d5',['Receipt status','PostgreSQL Record Update:\nPO Received'],{ao:[0,-30],bo:[0,180]}),
+  F('mgr','p75',['Received quantities','Receiving Input Form'],{y:820}),F('p75','mgr',['Jobs released from Awaiting Parts','Released Jobs Output Form'],{y:885}),
+  F('p75','d4',['Stock received','PostgreSQL Record Update:\nStock Received'],{ao:[0,-60],bo:[0,40]}),
+  F('d3','p75',['Jobs waiting on this order','PostgreSQL Record: Jobs Waiting on PO'],{ao:[0,10],bo:[0,10]}),
+  F('p75','d3',['Released job status','PostgreSQL Record Update: Jobs Released'],{ao:[0,50],bo:[0,55]})]};
+
+D.l1_9={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 9.0 Maintain Shop Records',
+ sub:['From UC-07 and UC-11 (FR09, FR11, FR14). Every master-data store has a process that creates and changes it.',
+  'From UC-07 and UC-11 (FR09, FR11, FR14). 9.5 adds the one-time CSV import of starting inventory as a batch process.'],boundary:BND,ortho:1,
+ nodes:[E('mgr',EX,485,'Store\nManager',{h:940}),
+  P('p91',PX,(PHYS?R5:R4)[0],'9.1','Maintain Staff\nAccounts',{impl:'Django admin; hashed password',h:PHYS?172:200}),
+  P('p92',PX,(PHYS?R5:R4)[1],'9.2','Maintain Store\nDetails',{impl:'Django admin',h:PHYS?172:200}),
+  P('p93',PX,(PHYS?R5:R4)[2],'9.3','Maintain Parts\nCatalog',{impl:'Django parts screen',h:PHYS?172:200}),
+  P('p94',PX,(PHYS?R5:R4)[3],'9.4','Maintain Supplier\nDetails',{impl:'Django supplier screen',h:PHYS?172:200,fs:24}),
+  P('p95',PX,R5[4],'9.5','Import Inventory\nFile',{impl:'Django CSV upload',phys:1,fs:24}),
+  S('d7',SX,PHYS?190:240,PHYS?300:340),S('d4',SX,PHYS?470:560,PHYS?120:120),S('d6',SX,PHYS?690:840,PHYS?200:84)],
+ flows:[
+  F('mgr','p91',['Staff account details','Staff Account Input Form'],{y:(PHYS?R5:R4)[0]-30}),F('p91','mgr',['Account confirmation','Staff Account Output Form'],{y:(PHYS?R5:R4)[0]+30}),
+  F('d7','p91',['Current staff accounts','PostgreSQL Record: Staff Accounts'],{ao:[0,-110],bo:[0,-30]}),F('p91','d7',['Staff account updates','PostgreSQL Record Update: Staff Account'],{ao:[0,30],bo:[0,-60]}),
+  F('mgr','p92',['Store details','Store Details Input Form'],{y:(PHYS?R5:R4)[1]-30}),F('p92','mgr',['Store confirmation','Store Details Output Form'],{y:(PHYS?R5:R4)[1]+30}),
+  F('d7','p92',['Current store records','PostgreSQL Record: Store Details'],{ao:[0,40],bo:[0,-20]}),F('p92','d7',['Store updates','PostgreSQL Record Update: Store Details'],{ao:[0,30],bo:[0,110]}),
+  F('mgr','p93',['Part catalog changes','Part Catalog\nInput Form'],{y:(PHYS?R5:R4)[2]-30}),F('p93','mgr',['Catalog confirmation','Part Catalog Output Form'],{y:(PHYS?R5:R4)[2]+40}),
+  F('d4','p93',['Current part catalog','PostgreSQL Record: Parts Catalog'],{ao:[0,PHYS?-160:-20],bo:[0,-40]}),F('p93','d4',['Part catalog updates','PostgreSQL Record Update:\nParts Catalog'],{ao:[0,0],bo:[0,PHYS?-110:20]}),
+  F('d6','p93',['Supplier list','PostgreSQL Record: Supplier Names'],{ao:[0,-15],bo:[0,50]}),
+  F('mgr','p94',['Supplier changes','Supplier Input Form'],{y:(PHYS?R5:R4)[3]-30}),F('p94','mgr',['Supplier confirmation','Supplier Output Form'],{y:(PHYS?R5:R4)[3]+30}),
+  F('d6','p94',['Current supplier records','PostgreSQL Record: Supplier List'],{ao:[0,5],bo:[0,-20]}),F('p94','d6',['Supplier updates','PostgreSQL Record Update: Supplier List'],{ao:[0,40],bo:[0,30]}),
+  F('mgr','p95','Inventory Import File',{y:R5[4]-30,phys:1}),F('p95','mgr','Import Error Report',{y:R5[4]+30,phys:1}),
+  F('d4','p95','PostgreSQL Record: Existing Part Names',{ao:[0,160],bo:[0,-40],phys:1}),F('p95','d4','PostgreSQL Record:\nImported Stock',{ao:[0,20],bo:[0,195],phys:1})]};
+
+// ===================== alignment slide =====================
+function alignSlide(){
+  FS=19;
+  const T=(x,y,s,o={})=>txt(x,y,s,Object.assign({anchor:'start'},o));
+  const rows=[['D1','Customers & Devices','CUSTOMER, DEVICE','1.0, 2.0','1.0, 2.0, 5.0, 6.0, 8.0'],
+   ['D2','Appointments','APPOINTMENT','1.0, 2.0, 3.0','1.0, 2.0, 3.0'],
+   ['D3','Repair Jobs','REPAIR_JOB, JOB_STATUS_HISTORY,\nQUOTE, PAYMENT, JOB_PART','2.0, 3.0, 4.0, 5.0, 6.0, 7.0','3.0, 4.0, 5.0, 6.0, 7.0, 8.0'],
+   ['D4','Parts Inventory','PART, STORE_PART_STOCK,\nINVENTORY_TXN','4.0, 7.0, 9.0','3.0, 4.0, 7.0, 8.0, 9.0'],
+   ['D5','Purchase Orders','PURCHASE_ORDER, PO_LINE','7.0','7.0'],
+   ['D6','Suppliers','SUPPLIER','9.0','7.0, 9.0'],
+   ['D7','Staff & Stores','STORE, EMPLOYEE','9.0','1.0, 2.0, 5.0, 8.0, 9.0']];
+  const col=[40,120,370,800,1070],cw=[80,250,430,270,280];
+  const y0=30;
+  mk('rect',{x:40,y:y0,width:1290,height:50,fill:'#1f4e79'});
+  ['Store','Name','ERD entities held (16 in all, each exactly once)','Created / updated by','Read by'].forEach((h,i)=>T(col[i]+12,y0+32,h,{fs:19,fw:700,fill:'#fff'}));
+  let y=y0+50;
+  rows.forEach((r,ri)=>{const hgt=r[2].includes('\n')?92:62;
+    mk('rect',{x:40,y,width:1290,height:hgt,fill:ri%2?'#f2f6fa':'#fff',stroke:'#c9d3de'});
+    r.forEach((c,i)=>txt(col[i]+12,y+hgt/2,c,{fs:i==2?18:20,fw:i==0?700:400,anchor:'start',ff:i==2?MONO:undefined}));
+    y+=hgt;});
+  // process x store grid
+  const gx=1380,gy=y0,cwid=62,rh=56,procs=['1.0','2.0','3.0','4.0','5.0','6.0','7.0','8.0','9.0'];
+  const grid={'1.0':{D1:'CR',D2:'CRU',D7:'R'},'2.0':{D1:'CRU',D2:'RU',D3:'C',D7:'R'},'3.0':{D2:'RU',D3:'CRU',D4:'R'},'4.0':{D3:'CRU',D4:'CRU'},
+   '5.0':{D1:'R',D3:'RU',D7:'R'},'6.0':{D1:'R',D3:'CRU'},'7.0':{D3:'RU',D4:'CRU',D5:'CRU',D6:'R'},'8.0':{D1:'R',D3:'R',D4:'R',D7:'R'},'9.0':{D4:'CRU',D6:'CRU',D7:'CRU'}};
+  mk('rect',{x:gx,y:gy,width:70+7*cwid,height:50,fill:'#1f4e79'});
+  T(gx+10,gy+32,'Proc.',{fs:18,fw:700,fill:'#fff'});
+  ['D1','D2','D3','D4','D5','D6','D7'].forEach((d,i)=>txt(gx+70+i*cwid+cwid/2,gy+32,d,{fs:19,fw:700,fill:'#fff'}));
+  procs.forEach((p,ri)=>{const yy=gy+50+ri*rh;
+    mk('rect',{x:gx,y:yy,width:70+7*cwid,height:rh,fill:ri%2?'#f2f6fa':'#fff',stroke:'#c9d3de'});
+    T(gx+12,yy+rh/2+7,p,{fs:20,fw:700});
+    ['D1','D2','D3','D4','D5','D6','D7'].forEach((d,i)=>{const v=grid[p][d];if(v)txt(gx+70+i*cwid+cwid/2,yy+rh/2+7,v,{fs:19,fw:700,fill:v.includes('C')||v.includes('U')?'#8a5a00':'#1f4e79'});});});
+  T(gx,gy+50+9*rh+34,'C create · R read · U update',{fs:18,fill:'#555'});
+  // bullets
+  const by=y+50;
+  [['Answers the Sprint 2 feedback:','"The ERD contains well over twenty entities; the DFDs only show a small number of data stores."'],
+   ['16 entities, 7 stores:','every ERD entity belongs to exactly one data store, and every store lists its entities on every DFD.'],
+   ['Removed or merged:','ROLE and JOB_STATUS are now checked columns; NOTIFICATION and JOB_NOTE are columns on REPAIR_JOB; EMAIL_TEMPLATE, PO_JOB_LINK and backup_log were dropped.'],
+   ['Every store is maintained:','each store is created by at least one process and read by at least one, so no store is a black hole or a miracle.']]
+   .forEach(([a,b],i)=>{const e=mk('text',{x:40,y:by+i*44,'font-size':20,fill:'#222'});
+      const s1=mk('tspan',{'font-weight':700,fill:'#1f4e79'},e);s1.textContent=a+' ';const s2=mk('tspan',{},e);s2.textContent=b;});
+}
+
+function render(){
+  const key=Q.get('d')||'level0';
+  if(key==='align'){D.align={W:1920,H:980,title:'QuickPhone — DFD and ERD alignment',sub:'Each DFD data store holds a fixed set of ERD entities; the grid shows which processes create, read and update each store.',custom:alignSlide};}
+  const d=D[key];
+  FS=key==='level0'?19:19;
+  const H=d.H+TY;
+  svg=document.getElementById('s');svg.setAttribute('width',d.W);svg.setAttribute('height',H);
+  const st=document.createElement('style');st.textContent=`@page{size:${d.W}px ${H}px;margin:0}`;document.head.appendChild(st);
+  root=svg;
+  mk('rect',{x:0,y:0,width:d.W,height:H,fill:'#fff'});
+  const defs=mk('defs',{});const m=mk('marker',{id:'arr',viewBox:'0 0 14 10',refX:13,refY:5,markerWidth:14,markerHeight:10,markerUnits:'userSpaceOnUse',orient:'auto'},defs);
+  mk('path',{d:'M0,0 L14,5 L0,10 z',fill:C.line},m);
+  const hdr=[txt(40,42,d.title+(key==='align'?'':PHYS?' (physical)':' (logical)'),{fs:32,fw:700,anchor:'start',fill:'#1f4e79'}),
+    d.sub?txt(40,80,pick(d.sub),{fs:20,anchor:'start',fill:'#555'}):null];
+  root=mk('g',{transform:`translate(0,${TY})`},svg);
+  if(d.custom){d.custom();document.title='done';return;}
+  const gb=mk('g',{});
+  const nodes=d.nodes.filter(keep),N={};nodes.forEach(n=>N[n.id]=n);
+  const gl=mk('g',{}),gn=mk('g',{});
+  PENDING=[];SEGS=[];
+  (d.anch||[]).forEach(([k,py,sy])=>{const [fr,to]=L0[k];const pf=fr[0]==='p';
+    const fy=pf?py:sy,ty=pf?sy:py;d.flows.push(L(k,{ao:[0,fy-N[fr].y],bo:[0,ty-N[to].y]}));});d.anch=null;
+  root=gl;if(d.ortho)orthoRoute(d,N);
+  d.flows.filter(keep).forEach(f=>{f=Object.assign({},f,{label:pick(f.label)});
+    if(!N[f.from]||!N[f.to])throw new Error('missing node '+f.from+'→'+f.to);drawFlow(f,N);});
+  root=gn;nodes.forEach(drawNode);
+  const top=gn.parentNode;
+  [...gl.querySelectorAll('text')].forEach(t=>top.appendChild(t));
+  if(d.boundary&&PHYS){root=gb;humanBoundaries(nodes,d.H);root=svg;boundaryKey(d.W,hdr);root=gb;}
+  const gLab=mk('g',{},top);placeLabels(N,top,gLab);PENDING=null;
+  if(d.legend){const [lx,ly,ls]=d.legend;root=mk('g',{transform:`translate(0,${TY})`+(ls?` translate(${lx},${ly}) scale(${ls}) translate(${-lx},${-ly})`:'')},svg);legend(lx,ly);}
+  if(Q.get('check'))overlaps();
+  document.title='done';
+}
+// &check=1 lists every pair of flows whose lines run along the same stretch (within 4 px), which would make two flows
+// read as one; render_slides.ps1 -Check runs it on every diagram.
+function overlaps(){const out=[],ax=(g,i)=>[g.a[i],g.b[i]],hz=g=>Math.abs(g.a[1]-g.b[1])<1,vt=g=>Math.abs(g.a[0]-g.b[0])<1;
+  for(let i=0;i<SEGS.length;i++)for(let j=i+1;j<SEGS.length;j++){const g=SEGS[i],h=SEGS[j];if(g.f.label===h.f.label&&g.f.from===h.f.from)continue;
+    for(const [ok,c,r] of [[hz,1,0],[vt,0,1]]){if(!ok(g)||!ok(h)||Math.abs(g.a[c]-h.a[c])>4)continue;
+      const [g1,g2]=ax(g,r).sort((a,b)=>a-b),[h1,h2]=ax(h,r).sort((a,b)=>a-b),len=Math.min(g2,h2)-Math.max(g1,h1);
+      if(len>3)out.push([pick(g.f.label),pick(h.f.label),Math.round(g.a[c]),Math.round(len),[g.a,g.b,h.a,h.b].map(p=>p.map(Math.round).join(","))]);}}
+  const p=document.createElement('pre');p.id='chk';p.textContent=JSON.stringify(out);document.body.appendChild(p);}
+// ?d=dump lists every flow of the chosen view as JSON (diagram, from, to, name, Level 0 key), for the data flow
+// dictionary and the unique-name check (SAD 8e Fig. 4-24).
+function dump(){const out=[];
+  for(const [k,d] of Object.entries(D)){const N={};d.nodes.filter(keep).forEach(n=>N[n.id]=n);
+    const nm=id=>{const x=N[id],l=x.label.replace(/\n/g,' ');return x.type==='entity'?l:x.num+' '+l;};
+    [...d.flows,...(d.anch||[]).map(([kk])=>L(kk))].filter(keep)
+      .forEach(f=>out.push({d:k,from:nm(f.from),to:nm(f.to),name:pick(f.label).replace(/\n/g,' '),k:f.k||''}));}
+  document.body.innerHTML='<pre id="o"></pre>';document.getElementById('o').textContent=JSON.stringify(out);}
+if(Q.get('d')==='dump')dump();else
+try{render();}catch(e){document.body.innerHTML='<pre style="font-size:30px;color:red">'+e.stack+'</pre>';}
+</script></body></html>

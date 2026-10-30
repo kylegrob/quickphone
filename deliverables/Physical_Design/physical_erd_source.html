@@ -1,0 +1,156 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+html,body{margin:0;background:#fff;overflow:hidden}
+svg{display:block}
+text{font-family:'Segoe UI',Arial,sans-serif}
+</style></head>
+<body><svg id="s" xmlns="http://www.w3.org/2000/svg"></svg>
+<script>
+// QuickPhone physical ERD — 24 tables derived from the Sprint 2 logical ERD (22 entities).
+// Crow's foot notation; ANSI SQL types; PK / FK / UK / IX markers; NN = NOT NULL.
+const NS='http://www.w3.org/2000/svg', MONO="Consolas,'Courier New',monospace";
+const W=4240,H=1960,TW=560,HD=44,RH=26;
+let root;
+function mk(tag,a,p){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);(p||root).appendChild(e);return e;}
+function txt(x,y,s,o={}){const a={x,y,'font-size':o.fs||17,'font-weight':o.fw||400,'text-anchor':o.anchor||'start',fill:o.fill||'#222'};
+  if(o.ff)a['font-family']=o.ff;if(o.it)a['font-style']='italic';const t=mk('text',a);t.textContent=s;return t;}
+
+const COLX=[70,760,1450,2140,2830,3520];
+const T={};
+function tbl(id,col,y,group,cols){T[id]={id,x:COLX[col],y,group,cols:cols.map(c=>({k:c[0],n:c[1],t:c[2],nn:c[3]}))};}
+// key, column, type, null
+tbl('role',0,150,'staff',[['PK','role_id','SMALLINT','NN'],['UK','role_name','VARCHAR(20)','NN'],['','description','VARCHAR(200)','']]);
+tbl('store',0,320,'staff',[['PK','store_id','INTEGER','NN'],['UK','store_name','VARCHAR(60)','NN'],['','address','VARCHAR(200)','NN'],['','phone','VARCHAR(20)','NN'],['','email_address','VARCHAR(120)','NN'],['','business_hours','VARCHAR(120)','']]);
+tbl('employee',0,580,'staff',[['PK','employee_id','INTEGER','NN'],['FK store','store_id','INTEGER','NN'],['FK role','role_id','SMALLINT','NN'],['','first_name','VARCHAR(40)','NN'],['','last_name','VARCHAR(40)','NN'],['UK','email','VARCHAR(120)','NN'],['','password_hash','VARCHAR(255)','NN'],['','active_flag','BOOLEAN','NN'],['','last_login_at','TIMESTAMP','']]);
+tbl('user_session',0,920,'sys',[['PK','session_id','CHAR(64)','NN'],['FK employee','employee_id','INTEGER','NN'],['','created_at','TIMESTAMP','NN'],['','last_seen_at','TIMESTAMP','NN'],['','expires_at','TIMESTAMP','NN']]);
+tbl('backup_log',0,1160,'sys',[['PK','backup_id','INTEGER','NN'],['','started_at','TIMESTAMP','NN'],['','finished_at','TIMESTAMP',''],['','backup_file','VARCHAR(255)','NN'],['','backup_status','VARCHAR(10)','NN'],['','restore_tested_at','TIMESTAMP','']]);
+tbl('customer',1,150,'cust',[['PK','customer_id','INTEGER','NN'],['','first_name','VARCHAR(40)','NN'],['','last_name','VARCHAR(40)','NN'],['IX','phone','VARCHAR(20)','NN'],['','email','VARCHAR(120)',''],['','created_at','TIMESTAMP','NN']]);
+tbl('device',1,420,'cust',[['PK','device_id','INTEGER','NN'],['FK customer','customer_id','INTEGER','NN'],['','device_type','VARCHAR(20)','NN'],['','brand','VARCHAR(40)','NN'],['','model','VARCHAR(60)','NN'],['IX','serial_or_imei','VARCHAR(40)','']]);
+tbl('appointment',1,690,'cust',[['PK','appointment_id','INTEGER','NN'],['FK customer','customer_id','INTEGER','NN'],['FK store','store_id','INTEGER','NN'],['FK employee','technician_id','INTEGER','NN'],['','scheduled_at','TIMESTAMP','NN'],['','appt_status','VARCHAR(12)','NN']]);
+tbl('job_status',1,960,'job',[['PK','status_id','SMALLINT','NN'],['UK','status_name','VARCHAR(25)','NN'],['','display_order','SMALLINT','NN']]);
+tbl('email_template',1,1150,'note',[['PK','template_id','INTEGER','NN'],['UK','template_name','VARCHAR(60)','NN'],['','subject','VARCHAR(150)','NN'],['','body','VARCHAR(4000)','NN'],['','active_flag','BOOLEAN','NN']]);
+tbl('repair_job',2,150,'job',[['PK','repair_job_id','INTEGER','NN'],['UK','ticket_number','VARCHAR(12)','NN'],['FK device','device_id','INTEGER','NN'],['FK store','store_id','INTEGER','NN'],['FK,UK appt.','appointment_id','INTEGER',''],['FK employee','intake_employee_id','INTEGER','NN'],['FK employee','assigned_tech_id','INTEGER','NN'],['FK job_status','current_status_id','SMALLINT','NN'],['','reported_issue','VARCHAR(500)','NN'],['','intake_condition','VARCHAR(500)',''],['','check_in_at','TIMESTAMP','NN'],['','final_cost','DECIMAL(10,2)',''],['','completed_at','TIMESTAMP',''],['','picked_up_at','TIMESTAMP',''],['FK employee','released_by_id','INTEGER',''],['','id_verified_flag','BOOLEAN','NN'],['','signature_file','VARCHAR(255)','']]);
+tbl('job_status_history',2,700,'job',[['PK','status_history_id','BIGINT','NN'],['FK repair_job','repair_job_id','INTEGER','NN'],['FK job_status','status_id','SMALLINT','NN'],['FK employee','changed_by_id','INTEGER','NN'],['','changed_at','TIMESTAMP','NN'],['','change_note','VARCHAR(300)','']]);
+tbl('notification',2,970,'note',[['PK','notification_id','INTEGER','NN'],['FK repair_job','repair_job_id','INTEGER','NN'],['FK template','template_id','INTEGER','NN'],['FK employee','sent_by_id','INTEGER','NN'],['','recipient_email','VARCHAR(120)','NN'],['','delivery_status','VARCHAR(10)','NN'],['','sent_at','TIMESTAMP','NN'],['','failure_reason','VARCHAR(300)','']]);
+tbl('quote',3,150,'job',[['PK','quote_id','INTEGER','NN'],['FK repair_job','repair_job_id','INTEGER','NN'],['FK employee','prepared_by_id','INTEGER','NN'],['','labor_amount','DECIMAL(10,2)','NN'],['','parts_amount','DECIMAL(10,2)','NN'],['','total_amount','DECIMAL(10,2)','NN'],['','customer_decision','VARCHAR(10)','NN'],['','decision_at','TIMESTAMP',''],['FK employee','decision_by_id','INTEGER',''],['','created_at','TIMESTAMP','NN']]);
+tbl('payment',3,510,'job',[['PK','payment_id','INTEGER','NN'],['FK repair_job','repair_job_id','INTEGER','NN'],['FK employee','processed_by_id','INTEGER','NN'],['','amount','DECIMAL(10,2)','NN'],['','payment_method','VARCHAR(12)','NN'],['','payment_status','VARCHAR(10)','NN'],['','paid_at','TIMESTAMP','NN']]);
+tbl('job_note',3,800,'job',[['PK','job_note_id','INTEGER','NN'],['FK repair_job','repair_job_id','INTEGER','NN'],['FK employee','employee_id','INTEGER','NN'],['','note_type','VARCHAR(20)','NN'],['','note_text','VARCHAR(2000)','NN'],['','created_at','TIMESTAMP','NN']]);
+tbl('job_part',4,150,'inv',[['PK','job_part_id','INTEGER','NN'],['FK repair_job','repair_job_id','INTEGER','NN'],['FK part','part_id','INTEGER','NN'],['FK store','store_id','INTEGER','NN'],['','quantity','INTEGER','NN'],['','part_status','VARCHAR(8)','NN'],['FK employee','recorded_by_id','INTEGER','NN'],['','recorded_at','TIMESTAMP','NN']]);
+tbl('part',4,460,'inv',[['PK','part_id','INTEGER','NN'],['FK supplier','default_supplier_id','INTEGER',''],['','part_name','VARCHAR(100)','NN'],['','device_model','VARCHAR(60)',''],['','grade','VARCHAR(20)',''],['','standard_cost','DECIMAL(10,2)','NN'],['','active_flag','BOOLEAN','NN']]);
+tbl('store_part_stock',4,750,'inv',[['PK,FK store','store_id','INTEGER','NN'],['PK,FK part','part_id','INTEGER','NN'],['','quantity_on_hand','INTEGER','NN'],['','reorder_point','INTEGER','NN']]);
+tbl('inventory_txn',4,960,'inv',[['PK','inventory_txn_id','BIGINT','NN'],['FK stock','store_id','INTEGER','NN'],['FK stock','part_id','INTEGER','NN'],['FK repair_job','repair_job_id','INTEGER',''],['FK purch._order','purchase_order_id','INTEGER',''],['FK employee','recorded_by_id','INTEGER','NN'],['','txn_type','VARCHAR(12)','NN'],['','quantity_change','INTEGER','NN'],['','reason','VARCHAR(200)',''],['','txn_at','TIMESTAMP','NN']]);
+tbl('supplier',5,150,'po',[['PK','supplier_id','INTEGER','NN'],['UK','supplier_name','VARCHAR(100)','NN'],['','contact_name','VARCHAR(80)',''],['','phone','VARCHAR(20)',''],['','email','VARCHAR(120)',''],['','active_flag','BOOLEAN','NN']]);
+tbl('purchase_order',5,410,'po',[['PK','purchase_order_id','INTEGER','NN'],['FK store','store_id','INTEGER','NN'],['FK supplier','supplier_id','INTEGER','NN'],['FK employee','created_by_id','INTEGER','NN'],['FK employee','approved_by_id','INTEGER',''],['IX','po_status','VARCHAR(20)','NN'],['','created_at','TIMESTAMP','NN'],['','submitted_at','TIMESTAMP',''],['','approved_at','TIMESTAMP',''],['','placed_at','TIMESTAMP',''],['','rejection_reason','VARCHAR(300)',''],['','order_total','DECIMAL(10,2)','NN']]);
+tbl('po_line',5,830,'po',[['PK','po_line_id','INTEGER','NN'],['FK purch._order','purchase_order_id','INTEGER','NN'],['FK part','part_id','INTEGER','NN'],['','quantity_ordered','INTEGER','NN'],['','quantity_received','INTEGER','NN'],['','unit_cost','DECIMAL(10,2)','NN']]);
+tbl('po_job_link',5,1090,'po',[['PK,FK purch._order','purchase_order_id','INTEGER','NN'],['PK,FK repair_job','repair_job_id','INTEGER','NN']]);
+
+const GC={staff:'#1f4e79',sys:'#5b5b5b',cust:'#2e6b4f',job:'#8a5a00',note:'#7a3b69',inv:'#2d5f8a',po:'#8b3a2b'};
+function rowY(t,col){const i=t.cols.findIndex(c=>c.n===col);if(i<0)throw new Error(t.id+'.'+col);return t.y+HD+i*RH+RH/2;}
+function drawTable(t){const h=HD+t.cols.length*RH+8,x=t.x,y=t.y;
+  mk('rect',{x,y,width:TW,height:h,fill:'#fff',stroke:GC[t.group],'stroke-width':2.5,rx:6});
+  mk('rect',{x,y,width:TW,height:HD,fill:GC[t.group],rx:6});mk('rect',{x,y:y+HD-8,width:TW,height:8,fill:GC[t.group]});
+  txt(x+14,y+29,t.id,{fs:21,fw:700,fill:'#fff',ff:MONO});
+  t.cols.forEach((c,i)=>{const ry=y+HD+i*RH;
+    if(c.k.startsWith('PK'))mk('rect',{x:x+1.5,y:ry,width:TW-3,height:RH,fill:'#fff6d6'});
+    if(i>0)mk('line',{x1:x+1.5,y1:ry,x2:x+TW-1.5,y2:ry,stroke:'#e4e4e4'});
+    const [kk,...ref]=c.k.split(' ');
+    txt(x+10,ry+18,kk,{fs:14,fw:700,fill:kk.includes('PK')?'#8a5a00':kk.includes('FK')?'#1f4e79':'#555'});
+    if(ref.length)txt(x+10+kk.length*9.5+4,ry+18,ref.join(' '),{fs:13,it:1,fill:'#1f4e79'});
+    txt(x+150,ry+18,c.n,{fs:16,fw:c.k.startsWith('PK')?700:400,ff:MONO,fill:'#1a1a1a'});
+    txt(x+372,ry+18,c.t,{fs:14,ff:MONO,fill:'#444'});
+    if(c.nn)txt(x+TW-12,ry+18,'NN',{fs:13,fw:700,fill:'#888',anchor:'end'});
+  });
+  t.h=h;
+}
+const LINE='#3a3a3a';
+function marker(E,s,kind){const x=E[0],y=E[1];
+  const L=(x1,y1,x2,y2)=>mk('line',{x1,y1,x2,y2,stroke:LINE,'stroke-width':2});
+  const O=cx=>mk('circle',{cx,cy:y,r:6,fill:'#fff',stroke:LINE,'stroke-width':2});
+  if(kind==='1'){L(x+s*10,y-10,x+s*10,y+10);L(x+s*18,y-10,x+s*18,y+10);}
+  else if(kind==='Z1'){L(x+s*10,y-10,x+s*10,y+10);O(x+s*24);}
+  else{L(x+s*20,y,x,y-11);L(x+s*20,y,x,y+11);
+    if(kind==='M1')L(x+s*26,y-10,x+s*26,y+10);else O(x+s*28);}
+}
+function rel(p,pc,ps,c,cc,cs,via,pm,cm){const P=T[p],Cc=T[c];
+  const A=[ps==='R'?P.x+TW:P.x,rowY(P,pc)],B=[cs==='R'?Cc.x+TW:Cc.x,rowY(Cc,cc)];
+  const pts=[A];let cur=A.slice();
+  via.forEach(([k,v])=>{cur=k==='x'?[v,cur[1]]:[cur[0],v];pts.push(cur);});
+  pts.push([cur[0],B[1]]);pts.push(B);
+  mk('polyline',{points:pts.map(q=>q.join(',')).join(' '),fill:'none',stroke:LINE,'stroke-width':2});
+  return ()=>{marker(A,ps==='R'?1:-1,pm);marker(B,cs==='R'?1:-1,cm);};
+}
+
+function render(){
+  const svg=document.getElementById('s');svg.setAttribute('width',W);svg.setAttribute('height',H);root=svg;
+  mk('rect',{x:0,y:0,width:W,height:H,fill:'#fff'});
+  txt(70,50,'QuickPhone — Physical ERD (24 tables)',{fs:34,fw:700,fill:'#1f4e79'});
+  txt(70,88,'Derived from the Sprint 2 logical ERD (22 entities). Crow\'s foot notation; ANSI SQL types; one shared database for both stores.',{fs:20,fill:'#555'});
+  const gl=mk('g',{}),gt=mk('g',{}),gm=mk('g',{});
+  root=gt;Object.values(T).forEach(drawTable);
+  root=gl;
+  const R=[
+   rel('role','role_id','L','employee','role_id','L',[['x',30]],'1','M0'),
+   rel('store','store_id','R','employee','store_id','R',[['x',680]],'1','M0'),
+   rel('employee','employee_id','R','user_session','employee_id','R',[['x',650]],'1','M0'),
+   rel('customer','customer_id','L','device','customer_id','L',[['x',718]],'1','M0'),
+   rel('customer','customer_id','L','appointment','customer_id','L',[['x',700]],'1','M0'),
+   rel('device','device_id','R','repair_job','device_id','L',[['x',1360]],'1','M0'),
+   rel('appointment','appointment_id','R','repair_job','appointment_id','L',[['x',1375]],'Z1','Z1'),
+   rel('job_status','status_id','R','repair_job','current_status_id','L',[['x',1390]],'1','M0'),
+   rel('job_status','status_id','R','job_status_history','status_id','L',[['x',1405]],'1','M0'),
+   rel('email_template','template_id','R','notification','template_id','L',[['x',1360]],'1','M0'),
+   rel('repair_job','repair_job_id','R','job_status_history','repair_job_id','R',[['x',2048]],'1','M1'),
+   rel('repair_job','repair_job_id','R','notification','repair_job_id','R',[['x',2062]],'1','M0'),
+   rel('repair_job','repair_job_id','R','quote','repair_job_id','L',[['x',2076]],'1','M0'),
+   rel('repair_job','repair_job_id','R','payment','repair_job_id','L',[['x',2090]],'1','M0'),
+   rel('repair_job','repair_job_id','R','job_note','repair_job_id','L',[['x',2104]],'1','M0'),
+   rel('repair_job','repair_job_id','R','job_part','repair_job_id','L',[['x',2118],['y',128],['x',2790]],'1','M0'),
+   rel('repair_job','repair_job_id','R','inventory_txn','repair_job_id','L',[['x',2118],['y',128],['x',2775]],'Z1','M0'),
+   rel('repair_job','repair_job_id','R','po_job_link','repair_job_id','R',[['x',2118],['y',112],['x',4160]],'1','M0'),
+   rel('part','part_id','R','job_part','part_id','R',[['x',3428]],'1','M0'),
+   rel('part','part_id','R','store_part_stock','part_id','R',[['x',3440]],'1','M0'),
+   rel('store_part_stock','store_id','R','inventory_txn','part_id','R',[['x',3452]],'1','M0'),
+   rel('supplier','supplier_id','L','part','default_supplier_id','R',[['x',3464]],'Z1','M0'),
+   rel('part','part_id','R','po_line','part_id','L',[['x',3476]],'1','M0'),
+   rel('purchase_order','purchase_order_id','L','inventory_txn','purchase_order_id','R',[['x',3488]],'Z1','M0'),
+   rel('supplier','supplier_id','R','purchase_order','supplier_id','R',[['x',4116]],'1','M0'),
+   rel('purchase_order','purchase_order_id','R','po_line','purchase_order_id','R',[['x',4130]],'1','M1'),
+   rel('purchase_order','purchase_order_id','R','po_job_link','purchase_order_id','R',[['x',4144]],'1','M0')];
+  root=gm;R.forEach(f=>f());
+  // legend
+  root=svg;const lx=70,ly=1430;
+  mk('rect',{x:lx,y:ly,width:1240,height:500,fill:'#fff',stroke:'#999','stroke-width':1.5});
+  txt(lx+20,ly+36,'Notation',{fs:22,fw:700});
+  const sym=(y,k1,k2,label)=>{const a=[lx+40,y],b=[lx+200,y];
+    mk('line',{x1:a[0],y1:y,x2:b[0],y2:y,stroke:LINE,'stroke-width':2});marker(a,1,k1);marker(b,-1,k2);txt(lx+230,y+6,label,{fs:18});};
+  sym(ly+80,'1','M0','exactly one  →  zero or many');
+  sym(ly+125,'1','M1','exactly one  →  one or many');
+  sym(ly+170,'Z1','Z1','zero or one  →  zero or one');
+  const kx=lx+20;
+  [['PK','primary key (shaded row)','#8a5a00'],['FK table','foreign key and the table it references','#1f4e79'],['UK / IX','unique constraint / non-unique index','#555'],['NN','NOT NULL; blank = nullable','#888']]
+   .forEach((r,i)=>{txt(kx,ly+230+i*34,r[0],{fs:16,fw:700,fill:r[2]});txt(kx+110,ly+230+i*34,r[1],{fs:18});});
+  txt(kx,ly+380,'Header colour groups tables by area: staff & stores, system, customers,',{fs:17,fill:'#444'});
+  txt(kx,ly+404,'repair jobs, notifications, inventory, purchasing.',{fs:17,fill:'#444'});
+  txt(kx,ly+440,'FKs to store and employee are listed in each table\'s key column; their',{fs:17,fill:'#444'});
+  txt(kx,ly+464,'lines are left off so the diagram stays readable.',{fs:17,fill:'#444'});
+  // notes
+  const nx=1360;
+  mk('rect',{x:nx,y:ly,width:2810,height:500,fill:'#fff',stroke:'#999','stroke-width':1.5});
+  txt(nx+20,ly+36,'Physical design decisions',{fs:22,fw:700});
+  ['1. Target: one relational database shared by both stores, behind the web app. ANSI SQL types are used, so the model fits any mainstream DBMS; the product is not yet chosen.',
+   '2. Added system tables user_session (sign-in, NFR01) and backup_log (daily backup and restore test, NFR06). Added employee.password_hash and last_login_at, and store.email_address (the sending account, client-confirmed #7).',
+   '3. intake_condition moved from device to repair_job: a device\'s condition is recorded at every visit, not once. CustomerSignatureRef became signature_file (path to the stored image).',
+   '4. purchase_order gains submitted_at, placed_at and rejection_reason (FR10: a rejected PO returns to Draft with a reason; UC-10: Ordered when placed).',
+   '5. Stored derived values kept on purpose: quote.total_amount, purchase_order.order_total and repair_job.current_status_id. Each is written in the same transaction as its source rows.',
+   '6. CHECK constraints: store_part_stock.quantity_on_hand >= 0 (FR07); job_part.quantity > 0; 0 <= po_line.quantity_received <= quantity_ordered; inventory_txn.reason required for Adjustment.',
+   '7. Value lists as CHECKs: po_status (Draft, Pending Approval, Approved, Ordered, Partially Received, Received); customer_decision (Pending, Approved, Declined); part_status (Needed, Used);',
+   '    txn_type (Used, Received, Adjustment, Import); delivery_status (Sent, Failed); appt_status (Booked, Checked In, Cancelled, No Show). job_status rows hold the 8 Sprint 2 statuses.',
+   '8. Indexes beyond keys: customer.phone, device.serial_or_imei, repair_job (assigned_tech_id, current_status_id), repair_job (store_id, current_status_id), purchase_order.po_status.',
+   '9. Composite keys: store_part_stock (store_id, part_id) and po_job_link (purchase_order_id, repair_job_id). inventory_txn references store_part_stock through (store_id, part_id).',
+   '10. Unique keys enforce one-to-one rules: repair_job.appointment_id (one job per appointment), repair_job.ticket_number, employee.email; po_line is unique on (purchase_order_id, part_id).']
+   .forEach((s,i)=>txt(nx+20,ly+76+i*38,s,{fs:18,fill:'#333'}));
+  document.title='done';
+}
+render();
+</script></body></html>

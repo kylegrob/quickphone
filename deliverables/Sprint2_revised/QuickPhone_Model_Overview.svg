@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L12,5 L0,10 z" fill="#333"/></marker>
+    <marker id="ad" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L12,5 L0,10 z" fill="#4d7a2e"/></marker>
+  </defs>
+  <rect width="1600" height="900" fill="#ffffff"/>
+
+  <!-- ===== Branch connectors (drawn first, under nodes) ===== -->
+  <g fill="none" stroke="#333" stroke-width="2.2">
+    <path d="M404 265 V120 H1084" marker-end="url(#a)"/>
+    <path d="M668 265 V120"/>
+    <path d="M1306 120 H1460 V263" marker-end="url(#a)"/>
+    <path d="M404 395 V520 H643" marker-end="url(#a)"/>
+    <path d="M932 395 V520 H877" marker-end="url(#a)"/>
+  </g>
+  <path d="M1455 655 V605 H760 V557" fill="none" stroke="#4d7a2e" stroke-width="2.4" stroke-dasharray="9 6" marker-end="url(#ad)"/>
+  <g font-size="15" fill="#555" font-style="italic">
+    <text x="414" y="200">can't repair</text>
+    <text x="678" y="200">quote declined</text>
+    <text x="414" y="462">part out of stock</text>
+    <text x="942" y="462">part out of stock</text>
+  </g>
+  <text x="1110" y="595" font-size="15" fill="#4d7a2e" font-weight="600" text-anchor="middle">parts received → job resumes</text>
+
+  <!-- ===== Main status path ===== -->
+  <g stroke="#333" stroke-width="2.2" marker-end="url(#a)">
+    <line x1="250" y1="330" x2="292" y2="330"/>
+    <line x1="514" y1="330" x2="556" y2="330"/>
+    <line x1="778" y1="330" x2="820" y2="330"/>
+    <line x1="1042" y1="330" x2="1084" y2="330"/>
+    <line x1="1306" y1="330" x2="1348" y2="330"/>
+  </g>
+  <g fill="#fff7de" stroke="#b8860b" stroke-width="2.5">
+    <rect x="30" y="265" width="220" height="130" rx="16"/>
+    <rect x="294" y="265" width="220" height="130" rx="16"/>
+    <rect x="558" y="265" width="220" height="130" rx="16"/>
+    <rect x="822" y="265" width="220" height="130" rx="16"/>
+    <rect x="1086" y="265" width="220" height="130" rx="16"/>
+    <rect x="1350" y="265" width="220" height="130" rx="16"/>
+  </g>
+  <g text-anchor="middle">
+    <g font-size="21" font-weight="700" fill="#1a1a1a">
+      <text x="140" y="305">Checked In</text>
+      <text x="404" y="305">Diagnosing</text>
+      <text x="668" y="305">Awaiting Approval</text>
+      <text x="932" y="305">In Repair</text>
+      <text x="1196" y="305">Ready for Pickup</text>
+      <text x="1460" y="305">Closed</text>
+    </g>
+    <g font-size="15" font-weight="600" fill="#1f4e79">
+      <text x="140" y="333">Front Desk · DFD 1.0</text>
+      <text x="404" y="333">Technician · DFD 2.0</text>
+      <text x="668" y="333">Front Desk · DFD 2.5</text>
+      <text x="932" y="333">Technician · DFD 3.0</text>
+      <text x="1196" y="333">Front Desk · DFD 4.0</text>
+      <text x="1460" y="333">Front Desk · DFD 5.0</text>
+    </g>
+    <g font-size="13" font-family="Consolas, monospace" fill="#4d7a2e" font-weight="700">
+      <text x="140" y="358">DEVICE · REPAIR_JOB</text>
+      <text x="404" y="358">QUOTE</text>
+      <text x="668" y="358">QUOTE decision</text>
+      <text x="932" y="358">JOB_PART</text>
+      <text x="1196" y="358">NOTIFICATION</text>
+      <text x="1460" y="358">PAYMENT</text>
+    </g>
+    <g font-size="13" fill="#666" font-style="italic">
+      <text x="140" y="380">claim ticket + device tag</text>
+      <text x="404" y="380">diagnosis + quote</text>
+      <text x="668" y="380">customer says yes / no</text>
+      <text x="932" y="380">parts logged as used</text>
+      <text x="1196" y="380">completion email sent</text>
+      <text x="1460" y="380">ID → payment → signature</text>
+    </g>
+  </g>
+
+  <!-- ===== Branch statuses ===== -->
+  <rect x="1086" y="85" width="220" height="70" rx="16" fill="#ffffff" stroke="#b8860b" stroke-width="2.5" stroke-dasharray="8 5"/>
+  <text x="1196" y="115" font-size="19" font-weight="700" text-anchor="middle" fill="#1a1a1a">Returned Unrepaired</text>
+  <text x="1196" y="138" font-size="13" text-anchor="middle" fill="#666" font-style="italic">no repair charge · new status</text>
+
+  <rect x="645" y="485" width="230" height="70" rx="16" fill="#ffffff" stroke="#b8860b" stroke-width="2.5" stroke-dasharray="8 5"/>
+  <text x="760" y="515" font-size="19" font-weight="700" text-anchor="middle" fill="#1a1a1a">Awaiting Parts</text>
+  <text x="760" y="538" font-size="13" text-anchor="middle" fill="#666" font-style="italic">back to Diagnosing or In Repair</text>
+
+  <!-- ===== Parts & purchasing loop ===== -->
+  <line x1="30" y1="622" x2="1570" y2="622" stroke="#d9e1e8" stroke-width="1.5"/>
+  <text x="30" y="645" font-size="14" font-weight="700" letter-spacing="2" fill="#536373">PARTS &amp; PURCHASING</text>
+  <g stroke="#333" stroke-width="2.2" marker-end="url(#a)">
+    <line x1="255" y1="700" x2="295" y2="700"/>
+    <line x1="517" y1="700" x2="557" y2="700"/>
+    <line x1="779" y1="700" x2="819" y2="700"/>
+    <line x1="1041" y1="700" x2="1081" y2="700"/>
+    <line x1="1303" y1="700" x2="1343" y2="700"/>
+  </g>
+  <g fill="#dce8f5" stroke="#1f4e79" stroke-width="2">
+    <rect x="35" y="655" width="220" height="90" rx="10"/>
+    <rect x="297" y="655" width="220" height="90" rx="10"/>
+    <rect x="559" y="655" width="220" height="90" rx="10"/>
+    <rect x="821" y="655" width="220" height="90" rx="10"/>
+    <rect x="1083" y="655" width="220" height="90" rx="10" fill="#1f4e79"/>
+    <rect x="1345" y="655" width="220" height="90" rx="10"/>
+  </g>
+  <g text-anchor="middle" font-size="17" font-weight="700" fill="#1a1a1a">
+    <text x="145" y="694">Technician logs part</text>
+    <text x="407" y="694">Stock auto-deducted</text>
+    <text x="669" y="694">Low-stock list</text>
+    <text x="931" y="694">Manager creates PO</text>
+    <text x="1193" y="694" fill="#ffffff">Owner approves PO</text>
+    <text x="1455" y="694">Manager receives</text>
+  </g>
+  <g text-anchor="middle" font-size="13" font-family="Consolas, monospace" font-weight="700" fill="#4d7a2e">
+    <text x="145" y="720">JOB_PART · DFD 3.3</text>
+    <text x="407" y="720">INVENTORY · per store</text>
+    <text x="669" y="720">INVENTORY · DFD 6.1</text>
+    <text x="931" y="720">PURCHASE_ORDER · 6.2</text>
+    <text x="1193" y="720" fill="#cfe0f1">every PO · DFD 6.3</text>
+    <text x="1455" y="720">PO_LINE · DFD 6.5</text>
+  </g>
+
+  <!-- ===== Legend ===== -->
+  <g font-size="14" fill="#444">
+    <rect x="30" y="823" width="34" height="22" rx="6" fill="#fff7de" stroke="#b8860b" stroke-width="2"/>
+    <text x="74" y="839">Job status</text>
+    <text x="190" y="839" fill="#1f4e79" font-weight="600">Front Desk · DFD 1.0</text>
+    <text x="345" y="839">= who acts · DFD process</text>
+    <text x="560" y="839" fill="#4d7a2e" font-family="Consolas, monospace" font-weight="700">REPAIR_JOB</text>
+    <text x="655" y="839">= ERD entity</text>
+    <line x1="780" y1="834" x2="830" y2="834" stroke="#4d7a2e" stroke-width="2.4" stroke-dasharray="9 6"/>
+    <text x="840" y="839">= triggered when parts arrive</text>
+    <rect x="1060" y="823" width="34" height="22" rx="6" fill="#ffffff" stroke="#b8860b" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="1104" y="839">= side path</text>
+  </g>
+</svg>

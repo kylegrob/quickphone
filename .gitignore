@@ -11,8 +11,9 @@ desktop.ini
 # Python
 __pycache__/
 
-# Kyle's local working folders (drafts, render scripts, superseded diagram sets)
-/deliverables/
+# Kyle's local working folders. deliverables/ is tracked since 2026-10-30; only scratch folders stay out.
+/deliverables/**/tmp/
+__pycache__/
 /outlines/
 
 # Sprint 4 working system: local environment, database and captured emails

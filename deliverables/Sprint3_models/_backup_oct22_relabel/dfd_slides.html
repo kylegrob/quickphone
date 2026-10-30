@@ -1,0 +1,524 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+html,body{margin:0;background:#fff;overflow:hidden}
+svg{display:block}
+text{font-family:'Segoe UI',Arial,sans-serif}
+</style></head>
+<body><svg id="s" xmlns="http://www.w3.org/2000/svg"></svg>
+<script>
+// QuickPhone DFDs, slide edition (Sprint 3 rev. 2). One spec, two views: ?v=log|phys, ?d=<diagram>.
+// Built for 16:9 slides (1920x1080): labels >= 19px, process names 25px. Every entity and data store is drawn
+// once per diagram. The 7 data stores match the ERD exactly: each store lists the entities it holds.
+// Level 0 is shown whole (d=level0, a large poster for documents/PDF) and in three readable parts (l0a, l0b, l0c).
+const NS='http://www.w3.org/2000/svg', MONO="Consolas,'Courier New',monospace";
+const Q=new URLSearchParams(location.search), PHYS=Q.get('v')!=='log';
+const C={ent:'#dce8f5',entB:'#1f4e79',proc:'#fff7de',procB:'#b8860b',man:'#f0f0f0',manB:'#666',
+  store:'#e8f1e0',storeB:'#4d7a2e',line:'#333',hmb:'#c0392b'};
+const TY=100;
+let svg, root, PENDING=null, SEGS=[];
+const pick=x=>Array.isArray(x)?(PHYS?x[1]:x[0]):x;
+const keep=o=>!(o.phys&&!PHYS)&&!(o.log&&PHYS);
+function segHitsRect(a,b,r,pad){const x0=r.x-pad,y0=r.y-pad,x1=r.x+r.width+pad,y1=r.y+r.height+pad;
+  let t0=0,t1=1;const dx=b[0]-a[0],dy=b[1]-a[1];
+  for(const [p,q] of [[-dx,a[0]-x0],[dx,x1-a[0]],[-dy,a[1]-y0],[dy,y1-a[1]]]){
+    if(p===0){if(q<0)return false;continue;}const r2=q/p;
+    if(p<0){if(r2>t1)return false;if(r2>t0)t0=r2;}else{if(r2<t0)return false;if(r2<t1)t1=r2;}}
+  return true;}
+// Store-flow labels are placed last: each slides along its own line (and to either side) to the spot touching
+// the fewest nodes, labels and other flows' lines.
+function placeLabels(N,scope,group){
+  const pad=4,boxes=[];
+  const hit=(a,b)=>a.x<b.x+b.width+pad&&b.x<a.x+a.width+pad&&a.y<b.y+b.height+pad&&b.y<a.y+a.height+pad;
+  Object.values(N).forEach(n=>{const b=bounds(n);boxes.push({x:b.l,y:b.t,width:b.r-b.l,height:b.b-b.t});});
+  [...scope.querySelectorAll(':scope > text')].forEach(t=>boxes.push(t.getBBox()));
+  const ts=[0.5,0.42,0.58,0.34,0.66,0.26,0.74,0.18,0.82,0.12,0.88];
+  PENDING.sort((a,b)=>Math.hypot(a.p2[0]-a.p1[0],a.p2[1]-a.p1[1])-Math.hypot(b.p2[0]-b.p1[0],b.p2[1]-b.p1[1]));
+  PENDING.forEach(({f,p1,p2})=>{let best=null,bestS=1e9;
+    const L=Math.hypot(p2[0]-p1[0],p2[1]-p1[1])||1,nx=-(p2[1]-p1[1])/L,ny=(p2[0]-p1[0])/L;
+    search: for(const off of [0,16,-16,30,-30])for(const t of ts){
+      const x=p1[0]+(p2[0]-p1[0])*t+nx*off,y=p1[1]+(p2[1]-p1[1])*t+ny*off;
+      const el=txt(x,y,f.label,{fs:f.fs||FS,halo:1},group),bb=el.getBBox();
+      const s=10*boxes.filter(b=>hit(bb,b)).length+SEGS.filter(g=>g.f!==f&&segHitsRect(g.a,g.b,bb,2)).length+(off?0.5:0);
+      if(s<bestS){if(best)best.el.remove();best={el,bb};bestS=s;}else el.remove();
+      if(s===0)break search;}
+    boxes.push(best.bb);});
+}
+let FS=19;
+function mk(tag,a,p){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);(p||root).appendChild(e);return e;}
+function txt(x,y,s,o={},p){
+  const lines=String(s).split('\n'), fs=o.fs||20, lh=fs*1.18;
+  const a={'font-size':fs,'font-weight':o.fw||400,'text-anchor':o.anchor||'middle',fill:o.fill||'#222'};
+  if(o.ff)a['font-family']=o.ff;
+  if(o.it)a['font-style']='italic';
+  if(o.halo){a.stroke='#fff';a['stroke-width']=7;a['stroke-linejoin']='round';a['paint-order']='stroke';}
+  const t=mk('text',a,p);
+  const y0=y-(lines.length-1)*lh/2+fs*0.35;
+  lines.forEach((l,i)=>{const ts=mk('tspan',{x,y:y0+i*lh},t);ts.textContent=l;});
+  return t;
+}
+// ---------- node builders ----------
+const E=(id,x,y,label,o={})=>({id,type:'entity',x,y,w:o.w||250,h:o.h||130,label});
+const P=(id,x,y,num,label,o={})=>({id,type:'process',x,y,w:o.w||320,h:o.h||(PHYS?172:160),num,label,fs:o.fs,impl:o.impl,manual:o.manual,phys:o.phys,log:o.log});
+const STORE={
+ d1:['D1','Customers & Devices','customer, device'],
+ d2:['D2','Appointments','appointment'],
+ d3:['D3','Repair Jobs','repair_job, job_status_history,\nquote, payment, job_part'],
+ d4:['D4','Parts Inventory','part, store_part_stock,\ninventory_txn'],
+ d5:['D5','Purchase Orders','purchase_order, po_line'],
+ d6:['D6','Suppliers','supplier'],
+ d7:['D7','Staff & Stores','store, employee']};
+const S=(id,x,y,h,o={})=>{const [num,label,tables]=STORE[id];return {id,type:'store',x,y,w:o.w||440,h,num,label,tables};};
+const F=(from,to,label,o={})=>Object.assign({from,to,label},o);
+
+function bounds(n){const hw=n.w/2,hh=n.h/2;
+  if(n.type==='entity')return{l:n.x-hw-8,r:n.x+hw,t:n.y-hh-8,b:n.y+hh};
+  return{l:n.x-hw,r:n.x+hw,t:n.y-hh,b:n.y+hh};}
+function exitPt(n,P,Q){const b=bounds(n),dx=Q[0]-P[0],dy=Q[1]-P[1];let s=Infinity;
+  if(dx>0)s=Math.min(s,(b.r-P[0])/dx);if(dx<0)s=Math.min(s,(b.l-P[0])/dx);
+  if(dy>0)s=Math.min(s,(b.b-P[1])/dy);if(dy<0)s=Math.min(s,(b.t-P[1])/dy);
+  return[P[0]+s*dx,P[1]+s*dy];}
+
+function drawNode(n){const hw=n.w/2,hh=n.h/2;
+  if(n.type==='entity'){
+    mk('rect',{x:n.x-hw-8,y:n.y-hh-8,width:n.w,height:n.h,fill:C.entB});
+    mk('rect',{x:n.x-hw,y:n.y-hh,width:n.w,height:n.h,fill:C.ent,stroke:C.entB,'stroke-width':2.5});
+    txt(n.x,n.y,n.label,{fs:27,fw:700,fill:'#1a1a1a'});
+  }else if(n.type==='process'){
+    const fill=n.manual?C.man:C.proc, st=n.manual?C.manB:C.procB;
+    mk('rect',{x:n.x-hw,y:n.y-hh,width:n.w,height:n.h,rx:16,fill,stroke:st,'stroke-width':2.5});
+    mk('line',{x1:n.x-hw,y1:n.y-hh+40,x2:n.x+hw,y2:n.y-hh+40,stroke:st,'stroke-width':2});
+    txt(n.x,n.y-hh+20,n.num,{fs:22,fw:700});
+    let ib=0;
+    if(n.impl&&PHYS){const nl=n.impl.split('\n').length;ib=12+nl*19;
+      mk('line',{x1:n.x-hw,y1:n.y+hh-ib,x2:n.x+hw,y2:n.y+hh-ib,stroke:st,'stroke-width':1.5});
+      txt(n.x,n.y+hh-ib/2,n.impl,{fs:16,it:1,fill:n.manual?'#444':'#6b5410'});}
+    txt(n.x,(n.y-hh+40+n.y+hh-ib)/2,n.label,{fs:n.fs||25,fw:700,fill:'#1a1a1a'});
+  }else{
+    mk('rect',{x:n.x-hw,y:n.y-hh,width:n.w,height:n.h,fill:C.store});
+    const st={stroke:C.storeB,'stroke-width':2.5};
+    mk('line',Object.assign({x1:n.x-hw,y1:n.y-hh,x2:n.x+hw,y2:n.y-hh},st));
+    mk('line',Object.assign({x1:n.x-hw,y1:n.y+hh,x2:n.x+hw,y2:n.y+hh},st));
+    mk('line',Object.assign({x1:n.x-hw,y1:n.y-hh,x2:n.x-hw,y2:n.y+hh},st));
+    mk('line',Object.assign({x1:n.x-hw+62,y1:n.y-hh,x2:n.x-hw+62,y2:n.y+hh},st));
+    txt(n.x-hw+31,n.y,n.num,{fs:23,fw:700});
+    const tb=PHYS?n.tables:n.tables.toUpperCase();
+    const tall=n.h>=100, ty=tall?n.y-hh+26:n.y-12;
+    txt(n.x-hw+78,ty,n.label,{fs:22,fw:700,anchor:'start',fill:'#1a1a1a'});
+    txt(n.x-hw+78,ty+26+(tb.split('\n').length-1)*10,tb,{fs:16,anchor:'start',fill:'#2e5a1c',ff:MONO});
+  }}
+
+function entry(n,p){const b=bounds(n);
+  if(n.type==='store')return[p[0]<n.x?n.x-n.w/2:n.x+n.w/2,p[1]];
+  if(p[0]>=b.l&&p[0]<=b.r)return[p[0],p[1]<n.y?b.t:b.b];
+  return[p[0]<n.x?b.l:b.r,p[1]];}
+function drawRoute(f,N){const A=N[f.from],B=N[f.to],w=f.pts;
+  const pts=[entry(A,w[0]),...w,entry(B,w[w.length-1])];
+  mk('polyline',{points:pts.map(q=>q.join(',')).join(' '),fill:'none',stroke:C.line,'stroke-width':2.2,'marker-end':'url(#arr)'});
+  for(let i=1;i<pts.length;i++)SEGS.push({a:pts[i-1],b:pts[i],f});
+  if(f.label)txt(f.lp[0],f.lp[1],f.label,{fs:f.fs||FS,halo:1,anchor:f.la||'middle'});}
+
+function drawFlow(f,N){if(f.pts)return drawRoute(f,N);const A=N[f.from],B=N[f.to];let PA,PB;
+  if(f.y!=null){PA=[A.x,f.y];PB=[B.x,f.y];}
+  else if(f.x!=null){PA=[f.x,A.y];PB=[f.x,B.y];}
+  else{const ao=f.ao||[0,0],bo=f.bo||ao;PA=[A.x+ao[0],A.y+ao[1]];PB=[B.x+bo[0],B.y+bo[1]];}
+  const storeLink=(A.type==='store'||B.type==='store')&&f.x==null&&f.y==null;
+  const anc=(n,o,off)=>{if(!storeLink)return null;const lim=n.type==='store'?n.h/2-8:n.h/2-12;
+    return[o.x<n.x?n.x-n.w/2:n.x+n.w/2,n.y+Math.max(-lim,Math.min(lim,off?off[1]:0))];};
+  const sa=anc(A,B,f.ao),sb=anc(B,A,f.bo||f.ao);
+  const p1=sa||exitPt(A,PA,sb||PB),p2=sb||exitPt(B,PB,sa||PA);
+  mk('line',{x1:p1[0],y1:p1[1],x2:p2[0],y2:p2[1],stroke:C.line,'stroke-width':2.2,'marker-end':'url(#arr)'});SEGS.push({a:p1,b:p2,f});
+  if(!f.label)return;
+  if(PENDING&&f.x==null&&f.y==null){PENDING.push({f,p1,p2});return;}
+  const t=f.t??0.5,mx=p1[0]+(p2[0]-p1[0])*t,my=p1[1]+(p2[1]-p1[1])*t;
+  const fs=f.fs||FS,nl=f.label.split('\n').length,lh=fs*1.18;
+  const vert=Math.abs(p2[0]-p1[0])<2;
+  if(vert)return txt(mx+12,my+(f.ly||0),f.label,{fs,halo:1,anchor:'start'});
+  const ly=f.lpos==='below'?my+nl*lh/2+5:my-nl*lh/2-5;
+  txt(mx+(f.lx||0),ly,f.label,{fs,halo:1});
+}
+
+function boundary(b){
+  mk('rect',{x:b[0],y:b[1],width:b[2],height:b[3],rx:28,fill:'none',stroke:C.hmb,'stroke-width':3,'stroke-dasharray':'16 9'});
+  txt(b[0]+b[2]-24,b[1]+b[3]-14,'Human–machine boundary: QuickPhone web app and database',{fs:17,fw:700,anchor:'end',fill:C.hmb,halo:1});
+}
+
+function legend(x,y){
+  const W=640,H=PHYS?250:150;
+  mk('rect',{x,y,width:W,height:H,fill:'#fff',stroke:'#999','stroke-width':1.5});
+  txt(x+18,y+28,PHYS?'Physical DFD symbols (Gane and Sarson)':'Logical DFD symbols (Gane and Sarson)',{fs:19,fw:700,anchor:'start'});
+  const c2=x+300;
+  mk('rect',{x:x+18,y:y+50,width:52,height:34,fill:C.entB});mk('rect',{x:x+24,y:y+56,width:52,height:34,fill:C.ent,stroke:C.entB,'stroke-width':2});
+  txt(x+92,y+72,'External entity',{fs:17,anchor:'start'});
+  mk('rect',{x:x+24,y:y+100,width:52,height:38,rx:8,fill:C.proc,stroke:C.procB,'stroke-width':2});
+  mk('line',{x1:x+24,y1:y+112,x2:x+76,y2:y+112,stroke:C.procB,'stroke-width':1.5});
+  txt(x+92,y+120,PHYS?'Automated process':'Process',{fs:17,anchor:'start'});
+  mk('rect',{x:c2,y:y+52,width:86,height:38,fill:C.store});['M0,0H86','M0,38H86','M0,0V38','M18,0V38'].forEach(d=>mk('path',{d,transform:`translate(${c2},${y+52})`,stroke:C.storeB,'stroke-width':2,fill:'none'}));
+  txt(c2+100,y+72,'Data store (ERD entities listed)',{fs:16,anchor:'start'});
+  mk('line',{x1:c2,y1:y+120,x2:c2+84,y2:y+120,stroke:C.line,'stroke-width':2.2,'marker-end':'url(#arr)'});
+  txt(c2+100,y+120,'Data flow (one way)',{fs:17,anchor:'start'});
+  if(!PHYS)return;
+  mk('rect',{x:x+24,y:y+160,width:52,height:38,rx:8,fill:C.man,stroke:C.manB,'stroke-width':2});
+  txt(x+92,y+180,'Manual process',{fs:17,anchor:'start'});
+  mk('line',{x1:c2,y1:y+180,x2:c2+84,y2:y+180,stroke:C.hmb,'stroke-width':3,'stroke-dasharray':'12 7'});
+  txt(c2+100,y+180,'Human–machine boundary',{fs:17,anchor:'start'});
+  txt(x+18,y+232,'Bottom band of a process = how it is implemented and by whom.',{fs:15,anchor:'start',fill:'#555',it:1});
+}
+
+// ===================== shared Level 0 flow definitions =====================
+// [from, to, [logical label, physical label]]. Context and every Level 0 view use these names, so they balance.
+const L0={
+ // entities
+ e1a:['fd','p1',['Appointment request','Appointment request (booking screen)']], e1b:['p1','fd',['Free times & confirmation','Free times & confirmation (screen)']],
+ e2a:['fd','p2',['Customer, device & intake details','Customer phone & device details (intake form)']], e2b:['p2','fd',['Search results, claim ticket & tag','Matching jobs & printed claim ticket']],
+ e3a:['fd','p3',['Customer quote decision','Quote decision (decision screen)']], e3b:['p3','fd',['Quotes awaiting decision','Quotes awaiting customer decision (screen)']],
+ e3c:['tech','p3',['Diagnosis & quote','Diagnosis & quote (bench form)']], e3d:['p3','tech',['Assigned jobs & part stock','Assigned jobs & stock (screen)']],
+ e4a:['tech','p4',['Parts used & repair notes','Parts used & repair notes (form)']], e4b:['p4','tech',['Repair job & parts shortage','Repair job & parts shortage (alert)']],
+ e5a:['fd','p5',['Final cost & send instruction','Final cost & send instruction (screen)']], e5b:['p5','fd',['Ready-to-notify list & draft','Jobs ready to notify, with email draft (screen)']],
+ e5c:['p5','cust',['Completion email','Completion email (SMTP)']],
+ e6a:['fd','p6',['Pickup, ID, payment & signature','Ticket lookup & photo-ID check (screen)']], e6b:['p6','fd',['Pickup details & release confirmation','Release receipt & pickup record (printed)']],
+ e7a:['mgr','p7',['PO request, order & delivery','Purchase order request & delivery (screen)']], e7b:['p7','mgr',['Low stock, PO status & released jobs','Low-stock list & PO status (screen)']],
+ e7c:['own','p7',['PO approval decision','Approve or reject PO, with reason (screen)']], e7d:['p7','own',['POs awaiting approval','POs awaiting approval (screen)']],
+ e8a:['fd','p8',['Status enquiry','Job status enquiry (search screen)']], e8b:['p8','fd',['Job status','Job status (screen)']], e8c:['p8','own',['Two-store status overview','Two-store status overview (dashboard)']],
+ e9a:['mgr','p9',['Staff, store, part & supplier details','Admin records or CSV import (screen)']], e9b:['p9','mgr',['Record update confirmation','Save confirmation & import report (screen)']],
+ // stores
+ s1a:['d7','p1',['Technician availability','Active technician list']], s1b:['d1','p1',['Existing customer','Customer search by phone']], s1c:['p1','d1',['New customer','New customer record']],
+ s1d:['p1','d2',['Appointment bookings & changes','Appointment booking or change']], s1e:['d2','p1',['Booked appointments','Booked appointment times']],
+ s2a:['d1','p2',['Matching customer records','Matching customer records']], s2b:['p2','d1',['Customer & device records','Customer & device records saved']],
+ s2c:['d2','p2',["Today's appointment","Today's appointment"]], s2d:['p2','d2',['Checked In appointment','Appointment marked checked in']],
+ s2e:['d7','p2',['Technician roster','Technician roster']], s2f:['p2','d3',['New repair job','New repair job & first status']],
+ s3a:['d3','p3',['Assigned jobs & pending quotes','Assigned jobs & pending quotes']], s3b:['p3','d3',['Diagnosis, quote & decision','Diagnosis, quote & decision saved']], s3c:['d4','p3',['Stock at this store','Stock at this store']],
+ s4a:['d3','p4',['In Repair job','Job In Repair']], s4b:['p4','d3',['Parts used, notes & status','Parts used, notes & status saved']],
+ s4c:['d4','p4',['On-hand stock','Current stock on hand']], s4d:['p4','d4',['Stock deduction','Stock reduced for parts used']],
+ s5a:['d3','p5',['Ready jobs & approved quote','Ready jobs & approved quote']], s5b:['p5','d3',['Final cost & email record','Final cost & email sent saved']],
+ s5c:['d1','p5',['Customer email','Customer email address']], s5d:['d7','p5',['Store pickup details','Store hours & pickup details']],
+ s6a:['d3','p6',['Pickup job & payment','Job ready for pickup & payment']], s6b:['p6','d3',['Payment & release record','Payment & released status saved']], s6c:['d1','p6',['Customer identity','Customer name for receipt']],
+ s7a:['d3','p7',['Jobs awaiting parts','Jobs awaiting parts']], s7b:['p7','d3',['Released jobs & part orders','Released jobs & part orders saved']],
+ s7c:['d4','p7',['Stock levels','Stock at or below reorder point']], s7d:['p7','d4',['Stock received','Stock received saved']],
+ s7e:['d5','p7',['Open purchase orders','Open purchase orders']], s7f:['p7','d5',['Purchase order records','Purchase order saved']], s7g:['d6','p7',['Supplier details','Supplier details for order']],
+ s8a:['d3','p8',['Job & status history','Job status history']], s8b:['d1','p8',['Customer lookup','Customer contact details']], s8c:['d4','p8',['Stock summary','Stock summary']], s8d:['d7','p8',['Store list','Store list']],
+ s9a:['d7','p9',['Current staff & store records','Current staff & store records']], s9b:['p9','d7',['Staff & store updates','Staff & store changes saved']],
+ s9c:['d4','p9',['Current part catalog','Current parts catalog']], s9d:['p9','d4',['Part catalog updates','Part catalog changes saved']],
+ s9e:['d6','p9',['Current supplier records','Current supplier records']], s9f:['p9','d6',['Supplier updates','Supplier changes saved']]};
+const L=(k,o={})=>F(L0[k][0],L0[k][1],L0[k][2],Object.assign({k},o));
+const PROC={p1:['1.0','Schedule\nAppointment','Web app booking screen'],p2:['2.0','Register\nRepair Job','Web app + label printer'],
+ p3:['3.0','Record\nDiagnosis','Web app · bench PC'],p4:['4.0','Record Repair\nWork','Web app · bench PC'],
+ p5:['5.0','Send Completion\nNotice','Web app → store email (SMTP)'],p6:['6.0','Record Device\nRelease','Web app; card machine not linked'],
+ p7:['7.0','Process Purchase\nOrders','Web app; orders placed off-system'],p8:['8.0','Report Repair\nStatus','Web app dashboard'],
+ p9:['9.0','Maintain Shop\nRecords','Web app admin + CSV import']};
+const PR=(id,x,y,o={})=>P(id,x,y,PROC[id][0],PROC[id][1],Object.assign({impl:PROC[id][2],fs:24},o));
+
+const D={};
+// ---------- Context ----------
+D.context={W:1920,H:980,title:'QuickPhone — Context Diagram',
+ sub:'The whole system as one process and the five external entities it serves; flows match the Level 0 diagram',
+ nodes:[E('fd',165,355,'Front Desk\nStaff',{h:690}),E('tech',165,830,'Repair\nTechnician',{h:210}),
+  P('p0',960,470,'0','QuickPhone\nRepair Tracking\n& Parts Inventory\nSystem',{w:420,h:920,fs:34,impl:'Web application at counter\nand bench PCs + one\nshared database'}),
+  E('cust',1700,70,'Customer',{w:300,h:100}),E('own',1700,320,'Store\nOwner',{w:300,h:240}),E('mgr',1700,750,'Store\nManager',{w:300,h:380})],
+ flows:[...['e1a','e1b','e2a','e2b','e3a','e3b','e5a','e5b','e6a','e6b','e8a','e8b'].map((k,i)=>F(L0[k][0]==='fd'?'fd':'p0',L0[k][1]==='fd'?'fd':'p0',L0[k][2],{y:40+i*57})),
+  ...['e3c','e3d','e4a','e4b'].map((k,i)=>F(L0[k][0]==='tech'?'tech':'p0',L0[k][1]==='tech'?'tech':'p0',L0[k][2],{y:760+i*55})),
+  F('p0','cust',L0.e5c[2],{y:70}),
+  ...['e7c','e7d','e8c'].map((k,i)=>F(L0[k][0]==='own'?'own':'p0',L0[k][1]==='own'?'own':'p0',L0[k][2],{y:250+i*65})),
+  ...['e7a','e7b','e9a','e9b'].map((k,i)=>F(L0[k][0]==='mgr'?'mgr':'p0',L0[k][1]==='mgr'?'mgr':'p0',L0[k][2],{y:620+i*65}))]};
+
+// ---------- Level 0, part A: counter processes ----------
+D.l0a={W:1920,H:980,title:'QuickPhone — Level 0 DFD (1 of 3): front counter',
+ sub:'Processes 1.0, 2.0, 5.0 and 6.0. Each Level 0 part shows its processes with every store and entity they use, each drawn once.',
+ boundary:[630,-5,1278,875], // ends above the Customer, an external entity outside the system
+ // Process order 1.0, 2.0, 5.0, 6.0 and store order D2, D7, D1, D3 give the fewest process–store crossings
+ // of any two-column arrangement (9 pairs, checked exhaustively); the wide gap keeps flow labels clear (SAD 8e Fig. 4-24).
+ nodes:[E('fd',165,430,'Front Desk\nStaff',{h:820}),
+  PR('p1',810,100,{h:170}),PR('p2',810,320,{h:170}),PR('p5',810,540,{h:170}),PR('p6',810,760,{h:170}),
+  S('d2',1708,62,84,{w:400}),S('d7',1708,190,84,{w:400}),S('d1',1708,360,140,{w:400}),S('d3',1708,640,300,{w:400}),
+  E('cust',1735,935,'Customer',{w:300,h:80})],
+ flows:[L('e1a',{y:75}),L('e1b',{y:125}),L('e2a',{y:295}),L('e2b',{y:345}),L('e5a',{y:515}),L('e5b',{y:565}),L('e6a',{y:735}),L('e6b',{y:785}),
+  L('e5c',{pts:[[1040,600],[1250,600],[1250,935]],lp:[1238,950],la:'end'})],
+ anch:[['s1d',30,40],['s1e',55,62],['s1a',105,182],['s1b',140,318],['s1c',165,340],
+  ['s2c',250,80],['s2d',272,96],['s2e',296,210],['s2a',330,350],['s2b',355,372],['s2f',393,520],
+  ['s5d',470,222],['s5c',500,405],['s5a',560,560],['s5b',590,585],
+  ['s6c',690,420],['s6a',735,700],['s6b',765,730]]};
+
+// ---------- Level 0, part B: bench processes ----------
+D.l0b={W:1920,H:980,title:'QuickPhone — Level 0 DFD (2 of 3): repair bench',
+ sub:'Processes 3.0 and 4.0, with every store and entity they use.',
+ boundary:[680,-5,1225,975],
+ nodes:[E('tech',165,330,'Repair\nTechnician',{h:600}),E('fd',165,800,'Front Desk\nStaff',{h:190}),
+  PR('p4',880,190,{h:260}),PR('p3',880,640,{h:420}),
+  S('d4',1660,110,130),S('d3',1660,560,500)],
+ flows:[L('e4b',{y:150}),L('e4a',{y:230}),L('e3d',{y:500}),L('e3c',{y:570}),L('e3b',{y:760}),L('e3a',{y:820})],
+ anch:[['s4c',90,90],['s4d',130,130],['s4a',230,330],['s4b',270,370],['s3c',470,160],['s3a',580,580],['s3b',620,620]]};
+
+// ---------- Level 0, part C: back office ----------
+D.l0c={W:1920,H:980,title:'QuickPhone — Level 0 DFD (3 of 3): back office and reporting',
+ sub:'Processes 7.0, 8.0 and 9.0, with every store and entity they use.',
+ boundary:[680,-5,1225,975],
+ nodes:[E('mgr',165,290,'Store\nManager',{h:540}),E('own',165,690,'Store\nOwner',{h:200}),E('fd',165,890,'Front Desk\nStaff',{h:150}),
+  PR('p9',880,140,{h:260}),PR('p7',880,500,{h:400}),PR('p8',880,860,{h:200}),
+  S('d7',1660,70,100),S('d6',1660,200,84),S('d4',1660,340,120),S('d5',1660,500,110),S('d3',1660,680,140),S('d1',1660,880,84)],
+ flows:[L('e9a',{y:100}),L('e9b',{y:170}),L('e7a',{y:350}),L('e7b',{y:420}),L('e7c',{y:640}),L('e7d',{y:695}),
+  L('e8c',{y:785}),L('e8a',{y:870}),L('e8b',{y:930})],
+ anch:[['s9a',35,40],['s9b',75,80],['s9e',130,180],['s9f',165,215],['s9c',210,300],['s9d',250,330],
+  ['s7g',320,232],['s7c',360,345],['s7d',395,372],['s7e',470,480],['s7f',510,520],['s7a',620,640],['s7b',660,680],
+  ['s8d',775,110],['s8c',805,392],['s8a',860,722],['s8b',900,880]]};
+
+// ---------- Level 0, whole (poster for documents) ----------
+D.level0={W:2880,H:1680,title:'QuickPhone — Level 0 DFD (complete)',
+ sub:'All nine processes, seven data stores and five external entities, each drawn once. For slides, use the three Level 0 parts.',
+ boundary:[340,-5,2225,1490],legend:[10,1500,0.62],
+ nodes:[E('fd',170,725,'Front Desk\nStaff',{w:260,h:1410}),E('tech',2720,290,'Repair\nTechnician',{w:260,h:540}),
+  E('mgr',2720,1050,'Store\nManager',{w:260,h:820}),E('cust',560,1565,'Customer',{w:260,h:90}),E('own',1900,1565,'Store Owner',{w:300,h:90}),
+  PR('p3',1440,105,{w:420,h:200}),
+  PR('p1',560,330,{w:380,h:200}),PR('p2',560,580,{w:380,h:200}),PR('p6',560,830,{w:380,h:200}),PR('p8',560,1080,{w:380,h:200}),PR('p5',560,1330,{w:380,h:200}),
+  PR('p4',2320,420,{w:380,h:220}),PR('p9',2320,850,{w:380,h:280}),PR('p7',2320,1260,{w:380,h:340}),
+  S('d2',1440,330,84,{w:470}),S('d7',1440,480,100,{w:470}),S('d1',1440,650,120,{w:470}),S('d3',1440,900,290,{w:470}),
+  S('d4',1440,1160,120,{w:470}),S('d6',1440,1315,84,{w:470}),S('d5',1440,1445,100,{w:470})],
+ flows:[L('e3a',{y:75}),L('e3b',{y:135}),L('e3d',{y:75}),L('e3c',{y:135}),
+  L('e1a',{y:305}),L('e1b',{y:360}),L('e2a',{y:555}),L('e2b',{y:610}),L('e6a',{y:805}),L('e6b',{y:860}),
+  L('e8a',{y:1055}),L('e8b',{y:1110}),L('e5a',{y:1305}),L('e5b',{y:1360}),
+  L('e4b',{y:395}),L('e4a',{y:450}),L('e9a',{y:815}),L('e9b',{y:885}),L('e7a',{y:1225}),L('e7b',{y:1295}),
+  F('p5','cust',L0.e5c[2],{x:560}),
+  F('p8','own',L0.e8c[2],{pts:[[1130,1100],[1130,1565]],lp:[1450,1550]}),
+  F('own','p7',L0.e7c[2],{pts:[[2250,1545],[2250,1430]],lp:[2250,1530],la:'end'}),
+  F('p7','own',L0.e7d[2],{pts:[[2400,1595],[2050,1595]],lp:[2230,1625]}),
+  ...Object.keys(L0).filter(k=>k[0]==='s').map(k=>L(k))]};
+
+// ===================== Level 1 diagrams =====================
+const EX=165,PX=880,SX=1660;
+const R3=[150,470,790],R4=[120,360,600,840],R5=[95,290,485,680,875];
+const BND=[680,-5,1225,975];
+D.l1_1={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 1.0 Schedule Appointment',
+ sub:'Optional appointment booking (FR01, UC-12). A walk-in needs no appointment; 2.0 pre-fills a job from one when it exists.',boundary:BND,
+ nodes:[E('fd',EX,470,'Front Desk\nStaff',{h:900}),
+  P('p11',PX,R3[0],'1.1','List Available\nTimes',{impl:'Web app date picker',h:200}),
+  P('p12',PX,R3[1],'1.2','Record\nAppointment Booking',{impl:'Web app booking form',h:200,fs:23}),
+  P('p13',PX,R3[2],'1.3','Record\nAppointment Change',{impl:'Web app change form',h:200,fs:23}),
+  S('d7',SX,90,84,{}),S('d1',SX,330,84),S('d2',SX,650,300)],
+ flows:[F('fd','p11',['Date & store requested','Date picker entry'],{y:120}),F('p11','fd',['Available times','Free-slot screen'],{y:180}),
+  F('d7','p11',['Technician availability','Active technician list'],{ao:[0,0],bo:[0,-50]}),F('d2','p11',['Booked appointments','appointment rows for the date'],{ao:[0,-120],bo:[0,50]}),
+  F('p11','p12',['Chosen time slot','Chosen slot'],{x:PX}),
+  F('fd','p12',['Customer & chosen time','Booking form'],{y:440}),F('p12','fd',['Booking confirmation','Confirmation screen'],{y:500}),
+  F('d1','p12',['Existing customer','Customer search by phone'],{ao:[0,-10],bo:[0,-60]}),F('p12','d1',['New customer','New customer record'],{ao:[0,-20],bo:[0,20]}),
+  F('p12','d2',['Appointment booking','appointment row (Booked)'],{ao:[0,50],bo:[0,-60]}),
+  F('fd','p13',['Reschedule or cancel request','Change form'],{y:760}),F('p13','fd',['Change confirmation','Updated confirmation'],{y:820}),
+  F('d2','p13',['Appointment to change','appointment row to change'],{ao:[0,40],bo:[0,-40]}),F('p13','d2',['Rescheduled or cancelled\nappointment','scheduled_at or\nappt_status update'],{ao:[0,40],bo:[0,110]})]};
+
+D.l1_2={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 2.0 Register Repair Job',
+ sub:'From UC-01 Check In Device and FR02–FR04. "Identify Customer" is now two system actions: retrieve and save the customer record.',boundary:BND,
+ nodes:[E('fd',EX,485,'Front Desk\nStaff',{h:940}),
+  P('p21',PX,R5[0],'2.1','Retrieve\nCustomer Record',{impl:'Web app phone search'}),P('p22',PX,R5[1],'2.2','Save\nCustomer Record',{impl:'Web app customer form'}),
+  P('p23',PX,R5[2],'2.3','Record Device\nDetails',{impl:'Web app intake form'}),P('p24',PX,R5[3],'2.4','Create Repair\nJob',{impl:'Web app; ticket no. generated'}),
+  P('p25',PX,R5[4],'2.5','Print Claim\nDocuments',{impl:'Web app → label printer'}),
+  S('d1',SX,250,330),S('d2',SX,560,84),S('d7',SX,690,84),S('d3',SX,860,130)],
+ flows:[F('fd','p21',['Customer phone number','Phone search'],{y:65}),F('p21','fd',['Customer search results','Search results'],{y:125}),
+  F('d1','p21',['Matching customer records','Matching customer records'],{ao:[0,-20],bo:[0,-110]}),F('p21','p22',['Selected customer','Selected customer'],{x:PX}),
+  F('fd','p22',['New or changed customer details','Customer form'],{y:290}),F('p22','d1',['Customer record','customer row'],{ao:[0,0],bo:[0,30]}),
+  F('p22','p23',['Customer ID','customer_id'],{x:PX}),
+  F('fd','p23',['Device, condition & fault','Intake form: device, IMEI, fault'],{y:485}),F('p23','d1',['Device record','device row'],{ao:[0,-20],bo:[0,130]}),
+  F('p23','p24',['Device & intake details','device_id & intake'],{x:PX}),
+  F('fd','p24',['Technician assignment','Technician pick'],{y:680}),
+  F('d2','p24',["Today's appointment","Today's appointment"],{ao:[0,0],bo:[0,-50]}),F('p24','d2',['Checked In appointment','Appointment marked checked in'],{ao:[0,-25],bo:[0,25]}),
+  F('d7','p24',['Technician roster','Technician roster'],{ao:[0,0],bo:[0,10]}),F('p24','d3',['New repair job','New repair job & first status'],{ao:[0,50],bo:[0,-30]}),
+  F('p24','p25',['Ticket number','Job id & ticket no.'],{x:PX}),
+  F('p25','fd',['Claim ticket & device tag','Printed ticket & tag label'],{y:875})]};
+
+D.l1_3={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 3.0 Record Diagnosis',
+ sub:'From UC-02 and UC-03 (FR05–FR07). The system records the diagnosis and quote; the technician does the diagnosing.',boundary:BND,
+ nodes:[E('tech',EX,385,'Repair\nTechnician',{h:750}),E('fd',EX,880,'Front Desk\nStaff',{h:160}),
+  P('p31',PX,R5[0],'3.1','Retrieve\nAssigned Jobs',{impl:'Web app job queue'}),P('p32',PX,R5[1],'3.2','Record Diagnosis\nFindings',{impl:'Web app diagnosis form',fs:24}),
+  P('p33',PX,R5[2],'3.3','Check Part\nStock',{impl:'Web app stock lookup'}),P('p34',PX,R5[3],'3.4','Record Repair\nQuote',{impl:'Web app quote form'}),
+  P('p35',PX,R5[4],'3.5','Record Quote\nDecision',{impl:'Web app approval queue'}),
+  S('d4',SX,70,110),S('d3',SX,580,720)],
+ flows:[F('tech','p31',['Job to diagnose','Queue job pick'],{y:65}),F('p31','tech',['Assigned job queue','My job queue'],{y:125}),
+  F('d3','p31',['Assigned jobs','repair_job rows (mine)'],{ao:[0,-330],bo:[0,30]}),F('p31','p32',['Job under diagnosis','Job id'],{x:PX}),
+  F('tech','p32',['Diagnosis','Diagnosis form'],{y:290}),F('p32','d3',['Diagnosis & status','diagnosis_notes & status'],{ao:[0,0],bo:[0,-250]}),
+  F('p32','p33',['Parts needed','Parts selected'],{x:PX}),
+  F('d4','p33',['Stock at this store','Stock at this store'],{ao:[0,20],bo:[0,-50]}),F('p33','tech',['Part availability','Stock on hand screen'],{y:485}),
+  F('p33','d3',['Part needed &\nAwaiting Parts status','job_part (Needed)\n& status'],{ao:[0,20],bo:[0,-70]}),
+  F('p33','p34',['Available parts & costs','Parts & standard costs'],{x:PX}),
+  F('tech','p34',['Labor amount','Labor amount'],{y:680}),F('p34','d3',['Quote & Awaiting Approval','quote row (Pending)'],{ao:[0,0],bo:[0,100]}),
+  F('d3','p35',['Pending quote','quote row'],{ao:[0,240],bo:[0,-30]}),F('p35','d3',['Quote decision &\nnew status','decision, date\n& status'],{ao:[0,30],bo:[0,320]}),
+  F('p35','fd',['Quotes awaiting decision','Quotes awaiting customer decision (screen)'],{y:845}),F('fd','p35',['Customer quote decision','Decision entry (after call)'],{y:905})]};
+
+D.l1_4={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 4.0 Record Repair Work',
+ sub:'From UC-04 (FR06, FR07). Recording a part as used deducts it from the store\'s stock automatically; there is no reservation.',boundary:BND,
+ nodes:[E('tech',EX,485,'Repair\nTechnician',{h:940}),
+  P('p41',PX,R5[0],'4.1','Retrieve\nRepair Job',{impl:'Web app job screen'}),P('p42',PX,R5[1],'4.2','Verify Part\nStock',{impl:'Web app stock check'}),
+  P('p43',PX,R5[2],'4.3','Record Parts\nUsage',{impl:'Web app; one DB transaction'}),P('p44',PX,R5[3],'4.4','Record Parts\nShortage',{impl:'Web app; listed for Manager'}),
+  P('p45',PX,R5[4],'4.5','Record Repair\nCompletion',{impl:'Web app completion form'}),
+  S('d4',SX,240,130),S('d3',SX,690,520)],
+ flows:[F('tech','p41',['Job to repair','Job pick (In Repair)'],{y:65}),F('p41','tech',['Repair job details','Repair job screen'],{y:125}),
+  F('d3','p41',['In Repair job','Job In Repair'],{ao:[0,-250],bo:[0,20]}),
+  F('tech','p42',['Part & quantity used','Part & quantity entry'],{y:290}),F('d4','p42',['On-hand stock','Current stock on hand'],{ao:[0,-20],bo:[0,0]}),
+  F('p42','p43',['Available part\n& quantity','Part & qty\n(stock OK)'],{x:PX-60}),
+  F('p42','p44',['Stock shortage','Stock shortage'],{pts:[[PX+140,376],[PX+140,594]],lp:[PX+150,545],la:'start'}),
+  F('p43','d4',['Stock deduction','stock −qty &\ninventory_txn'],{ao:[0,-30],bo:[0,40]}),F('p43','d3',['Parts-used record','job_part (Used)'],{ao:[0,30],bo:[0,-160]}),
+  F('p44','d3',['Parts shortage &\nAwaiting Parts status','job_part shortage\n& status'],{ao:[0,0],bo:[0,-10]}),F('p44','tech',['Parts shortage notice','Awaiting Parts alert'],{y:680}),
+  F('tech','p45',['Repair notes & completion','Notes & Complete command'],{y:875}),F('p45','d3',['Notes & Ready for Pickup','repair_notes & status'],{ao:[0,0],bo:[0,180]})]};
+
+D.l1_5={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 5.0 Send Completion Notice',
+ sub:'From UC-05 (FR12, NFR05). One completion email from the store\'s account, sent by Owner, Manager or Front Desk; never by a Technician.',boundary:BND,
+ nodes:[E('fd',EX,385,'Front Desk\nStaff',{h:750}),E('cust',EX,890,'Customer',{h:110}),
+  P('p51',PX,R5[0],'5.1','List Jobs Ready\nfor Pickup',{impl:'Web app list; no Technicians',fs:24}),P('p52',PX,R5[1],'5.2','Confirm\nFinal Cost',{impl:'Web app; shows quote total'}),
+  P('p53',PX,R5[2],'5.3','Prepare\nCompletion Email',{impl:'Web app fixed-format email',fs:24}),P('p54',PX,R5[3],'5.4','Send Email\nMessage',{impl:'Web app → store email (SMTP)'}),
+  P('p55',PX,R5[4],'5.5','Record\nNotification Result',{impl:'Web app; automatic',fs:23}),
+  S('d3',SX,210,380),S('d1',SX,520,84),S('d7',SX,660,84)],
+ flows:[F('fd','p51',['Job to notify','Ready-job pick'],{y:65}),F('p51','fd',['Ready-to-notify list','Ready list (not yet emailed)'],{y:125}),
+  F('d3','p51',['Ready jobs not yet notified','ready jobs, no email sent'],{ao:[0,-10],bo:[0,-130]}),F('p51','p52',['Job awaiting final cost','Ready job id'],{x:PX}),
+  F('fd','p52',['Final cost','Final cost entry'],{y:290}),F('d3','p52',['Approved quote total','quote.total_amount'],{ao:[0,-20],bo:[0,60]}),
+  F('p52','d3',['Confirmed final cost','final_cost'],{ao:[0,30],bo:[0,120]}),F('p52','p53',['Job ready for pickup','Confirmed job'],{x:PX}),
+  F('d1','p53',['Customer email','Customer email address'],{ao:[0,-15],bo:[0,0]}),F('d7','p53',['Store pickup details','Store hours & pickup details'],{ao:[0,30],bo:[0,0]}),
+  F('p53','fd',['Completion email draft','Email preview'],{y:485}),F('p53','p54',['Prepared email','Merged email'],{x:PX}),
+  F('fd','p54',['Send instruction','Send command'],{y:680}),F('p54','cust',['Completion email','Email via store account (SMTP)'],{}),
+  F('p54','p55',['Send result','SMTP result, sender & time'],{x:PX}),
+  F('p55','d3',['Notification record','email_sent_at, by & status'],{pts:[[1390,875],[1390,370]],lp:[1400,830],la:'start'})]};
+
+const P6=PHYS;
+D.l1_6={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 6.0 Record Device Release',
+ sub:['From UC-06 (FR08). A device is released only after payment is recorded; only the fact of the ID check is stored.',
+  'From UC-06 (FR08). The photo-ID check (6.5) and taking payment (6.6) are manual; the card machine is not linked to the system.'],boundary:[650,-5,1255,975],
+ nodes:[E('fd',P6?140:EX,480,'Front Desk\nStaff',{h:900,w:P6?200:250}),
+  P('p61',PX,R4[0],'6.1','Retrieve\nPickup Job',{impl:'Web app ticket or phone lookup',h:200}),P('p62',PX,R4[1],'6.2','Record\nIdentity Check',{impl:'Web app ID-checked tick',h:200}),
+  P('p63',PX,R4[2],'6.3','Record\nPayment',{impl:'Web app pickup form',h:200}),P('p64',PX,R4[3],'6.4','Close Repair\nJob',{impl:'Web app; on-screen signature',h:200}),
+  P('p65',500,R4[1],'6.5','Check\nPhoto ID',{w:220,h:200,manual:1,phys:1,impl:'Manual · ID & tag'}),
+  P('p66',500,R4[2],'6.6','Take\nPayment',{w:220,h:200,manual:1,phys:1,impl:'Manual · card or cash'}),
+  S('d1',SX,110,84),S('d3',SX,590,620)],
+ flows:[F('fd','p61',['Ticket number or customer lookup','Ticket no. or phone'],{y:90}),F('p61','fd',['Pickup job & final cost','Pickup screen'],{y:150}),
+  F('d1','p61',['Customer identity','Customer name for receipt'],{ao:[0,0],bo:[0,-40]}),F('d3','p61',['Pickup job & payment','Job ready for pickup & payment'],{ao:[0,-280],bo:[0,40]}),
+  F('p61','p62',['Job for pickup','Job for pickup'],{x:PX,log:1}),F('fd','p62','ID check & tag match result',{y:360,log:1}),
+  F('p61','p65','Customer name &\ntag no. (screen)',{phys:1,ao:[-140,60],bo:[60,-60]}),F('fd','p65','Photo ID\n& tag',{y:360,phys:1}),F('p65','p62','ID-checked tick',{y:360,phys:1}),
+  F('p62','p63',['Verified job','Verified job'],{x:PX}),
+  F('fd','p63','Payment details',{y:600,log:1}),
+  F('p62','p66','Amount due (screen)',{phys:1,ao:[-140,60],bo:[60,-60]}),F('p66','p63','Amount & method',{y:600,phys:1}),
+  F('p63','d3',['Payment record','payment row'],{ao:[0,0],bo:[0,10]}),F('p63','p64',['Paid job','Paid job'],{x:PX}),
+  F('fd','p64',['Customer signature','Signature (on screen)'],{y:810}),F('p64','fd',['Release confirmation','Release receipt'],{y:870}),
+  F('p64','d3',['Release details\n& Closed status','picked_up_at\n& Closed status'],{ao:[0,20],bo:[0,250]})]};
+
+D.l1_7={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 7.0 Process Purchase Orders',
+ sub:'From UC-08 to UC-10 (FR09, FR10). The Owner approves every purchase order; orders are placed with the supplier outside the system.',boundary:BND,
+ nodes:[E('mgr',130,485,'Store\nManager',{w:180,h:940}),E('own',470,485,'Store\nOwner',{w:210,h:130}),
+  P('p71',PX,R5[0],'7.1','List Low-Stock\nParts',{impl:'Web app report'}),P('p72',PX,R5[1],'7.2','Record\nPurchase Order',{impl:'Web app PO form'}),
+  P('p73',PX,R5[2],'7.3','Record PO\nApproval',{impl:'Web app queue (Owner only)'}),P('p74',PX,R5[3],'7.4','Record Order\nPlacement',{impl:'Web app; ordered off-system'}),
+  P('p75',PX,R5[4],'7.5','Record Parts\nReceipt',{impl:'Web app receiving form'}),
+  S('d4',SX,70,110),S('d6',SX,215,84),S('d5',SX,500,380),S('d3',SX,860,140)],
+ flows:[F('d4','p71',['Stock levels','Stock at or below reorder point'],{ao:[0,0],bo:[0,-20]}),F('d3','p71',['Jobs awaiting parts','Jobs awaiting parts'],{ao:[0,-50],bo:[0,50]}),
+  F('p71','mgr',['Low-stock list & waiting jobs','Low-stock screen'],{y:95}),
+  F('mgr','p72',['PO request','PO form & Submit'],{y:290}),F('d6','p72',['Supplier details','Supplier details for order'],{ao:[0,0],bo:[0,-40]}),
+  F('p72','d5',['Submitted purchase order','PO & lines (Pending)'],{ao:[0,0],bo:[0,-150]}),F('p72','d3',['Jobs linked to the order','job_part PO link'],{ao:[0,50],bo:[0,-60]}),
+  F('d5','p73',['Pending purchase orders','Pending Approval POs'],{ao:[0,-40],bo:[0,-30]}),F('p73','d5',['PO decision','Approved, or Draft + reason'],{ao:[0,10],bo:[0,20]}),
+  F('p73','own',['POs awaiting approval','Approval queue'],{y:455}),F('own','p73',['PO approval decision','Approve / Reject + reason'],{y:515}),
+  F('d5','p74',['Approved purchase orders','Approved POs'],{ao:[0,60],bo:[0,-30]}),F('p74','d5',['Ordered status','Ordered + placed_at'],{ao:[0,20],bo:[0,110]}),
+  F('mgr','p74',['Order placed confirmation','Order-placed mark'],{y:655}),F('p74','mgr',['PO status','PO status screen'],{y:710}),
+  F('d5','p75',['Ordered PO lines','Ordered PO lines'],{ao:[0,165],bo:[0,-50]}),F('p75','d5',['Receipt status','quantity_received\n& status'],{ao:[0,-30],bo:[0,180]}),
+  F('mgr','p75',['Received quantities','Receiving form'],{y:850}),F('p75','mgr',['Jobs released from Awaiting Parts','Released jobs list'],{y:905}),
+  F('p75','d4',['Stock received','stock +qty &\ninventory_txn'],{ao:[0,-60],bo:[0,40]}),
+  F('d3','p75',['Jobs waiting on this order','job_part rows for the PO'],{ao:[0,10],bo:[0,10]}),
+  F('p75','d3',['Diagnosing or In Repair status','status update'],{ao:[0,50],bo:[0,55]})]};
+
+D.l1_9={W:1920,H:980,title:'QuickPhone — Level 1 DFD: 9.0 Maintain Shop Records',
+ sub:['From UC-07 and UC-11 (FR09, FR11, FR14). Every master-data store has a process that creates and changes it.',
+  'From UC-07 and UC-11 (FR09, FR11, FR14). 9.5 adds the one-time CSV import of starting inventory as a batch process.'],boundary:BND,
+ nodes:[E('mgr',EX,485,'Store\nManager',{h:940}),
+  P('p91',PX,(PHYS?R5:R4)[0],'9.1','Maintain Staff\nAccounts',{impl:'Web app admin; hashed password',h:PHYS?172:200}),
+  P('p92',PX,(PHYS?R5:R4)[1],'9.2','Maintain Store\nDetails',{impl:'Web app admin',h:PHYS?172:200}),
+  P('p93',PX,(PHYS?R5:R4)[2],'9.3','Maintain Parts\nCatalog',{impl:'Web app parts screen',h:PHYS?172:200}),
+  P('p94',PX,(PHYS?R5:R4)[3],'9.4','Maintain Supplier\nDetails',{impl:'Web app supplier screen',h:PHYS?172:200,fs:24}),
+  P('p95',PX,R5[4],'9.5','Import Inventory\nFile',{impl:'Web app CSV upload',phys:1,fs:24}),
+  S('d7',SX,PHYS?190:240,PHYS?300:340),S('d4',SX,PHYS?620:560,PHYS?420:120),S('d6',SX,PHYS?820:840,84)],
+ flows:[
+  F('mgr','p91',['Staff account details','Account form'],{y:(PHYS?R5:R4)[0]-30}),F('p91','mgr',['Account confirmation','Saved, or blocked (Owner role)'],{y:(PHYS?R5:R4)[0]+30}),
+  F('d7','p91',['Current staff accounts','employee rows'],{ao:[0,-110],bo:[0,-30]}),F('p91','d7',['Staff account updates','employee row'],{ao:[0,30],bo:[0,-60]}),
+  F('mgr','p92',['Store details','Store form'],{y:(PHYS?R5:R4)[1]-30}),F('p92','mgr',['Store confirmation','Saved store'],{y:(PHYS?R5:R4)[1]+30}),
+  F('d7','p92',['Current store records','store rows'],{ao:[0,40],bo:[0,-20]}),F('p92','d7',['Store updates','store row'],{ao:[0,30],bo:[0,110]}),
+  F('mgr','p93',['Part details &\nstock adjustments','Part form &\nadjustment + reason'],{y:(PHYS?R5:R4)[2]-30}),F('p93','mgr',['Catalog confirmation','Saved part & stock'],{y:(PHYS?R5:R4)[2]+40}),
+  F('d4','p93',['Current part catalog','Current parts catalog'],{ao:[0,PHYS?-160:-20],bo:[0,-40]}),F('p93','d4',['Part catalog updates','part, stock &\ninventory_txn'],{ao:[0,0],bo:[0,PHYS?-110:20]}),
+  F('d6','p93',['Supplier list','supplier list rows'],{ao:[0,-15],bo:[0,50]}),
+  F('mgr','p94',['New or changed supplier details','Supplier form'],{y:(PHYS?R5:R4)[3]-30}),F('p94','mgr',['Supplier confirmation','Saved supplier'],{y:(PHYS?R5:R4)[3]+30}),
+  F('d6','p94',['Current supplier records','Current supplier records'],{ao:[0,5],bo:[0,-20]}),F('p94','d6',['Supplier updates','Supplier changes saved'],{ao:[0,40],bo:[0,30]}),
+  F('mgr','p95','CSV file upload',{y:R5[4]-30,phys:1}),F('p95','mgr','Import report (rejected rows)',{y:R5[4]+30,phys:1}),
+  F('d4','p95','Existing part names',{ao:[0,160],bo:[0,-40],phys:1}),F('p95','d4','Valid rows &\ninventory_txn (Import)',{ao:[0,20],bo:[0,195],phys:1})]};
+
+// ===================== alignment slide =====================
+function alignSlide(){
+  FS=19;
+  const T=(x,y,s,o={})=>txt(x,y,s,Object.assign({anchor:'start'},o));
+  const rows=[['D1','Customers & Devices','CUSTOMER, DEVICE','1.0, 2.0','1.0, 2.0, 5.0, 6.0, 8.0'],
+   ['D2','Appointments','APPOINTMENT','1.0, 2.0','1.0, 2.0'],
+   ['D3','Repair Jobs','REPAIR_JOB, JOB_STATUS_HISTORY,\nQUOTE, PAYMENT, JOB_PART','2.0, 3.0, 4.0, 5.0, 6.0, 7.0','3.0, 4.0, 5.0, 6.0, 7.0, 8.0'],
+   ['D4','Parts Inventory','PART, STORE_PART_STOCK,\nINVENTORY_TXN','4.0, 7.0, 9.0','3.0, 4.0, 7.0, 8.0, 9.0'],
+   ['D5','Purchase Orders','PURCHASE_ORDER, PO_LINE','7.0','7.0'],
+   ['D6','Suppliers','SUPPLIER','9.0','7.0, 9.0'],
+   ['D7','Staff & Stores','STORE, EMPLOYEE','9.0','1.0, 2.0, 5.0, 8.0, 9.0']];
+  const col=[40,120,370,800,1070],cw=[80,250,430,270,280];
+  const y0=30;
+  mk('rect',{x:40,y:y0,width:1290,height:50,fill:'#1f4e79'});
+  ['Store','Name','ERD entities held (16 in all, each exactly once)','Created / updated by','Read by'].forEach((h,i)=>T(col[i]+12,y0+32,h,{fs:19,fw:700,fill:'#fff'}));
+  let y=y0+50;
+  rows.forEach((r,ri)=>{const hgt=r[2].includes('\n')?92:62;
+    mk('rect',{x:40,y,width:1290,height:hgt,fill:ri%2?'#f2f6fa':'#fff',stroke:'#c9d3de'});
+    r.forEach((c,i)=>txt(col[i]+12,y+hgt/2,c,{fs:i==2?18:20,fw:i==0?700:400,anchor:'start',ff:i==2?MONO:undefined}));
+    y+=hgt;});
+  // process x store grid
+  const gx=1380,gy=y0,cwid=62,rh=56,procs=['1.0','2.0','3.0','4.0','5.0','6.0','7.0','8.0','9.0'];
+  const grid={'1.0':{D1:'CR',D2:'CRU',D7:'R'},'2.0':{D1:'CRU',D2:'RU',D3:'C',D7:'R'},'3.0':{D3:'CRU',D4:'R'},'4.0':{D3:'CRU',D4:'CRU'},
+   '5.0':{D1:'R',D3:'RU',D7:'R'},'6.0':{D1:'R',D3:'CRU'},'7.0':{D3:'RU',D4:'CRU',D5:'CRU',D6:'R'},'8.0':{D1:'R',D3:'R',D4:'R',D7:'R'},'9.0':{D4:'CRU',D6:'CRU',D7:'CRU'}};
+  mk('rect',{x:gx,y:gy,width:70+7*cwid,height:50,fill:'#1f4e79'});
+  T(gx+10,gy+32,'Proc.',{fs:18,fw:700,fill:'#fff'});
+  ['D1','D2','D3','D4','D5','D6','D7'].forEach((d,i)=>txt(gx+70+i*cwid+cwid/2,gy+32,d,{fs:19,fw:700,fill:'#fff'}));
+  procs.forEach((p,ri)=>{const yy=gy+50+ri*rh;
+    mk('rect',{x:gx,y:yy,width:70+7*cwid,height:rh,fill:ri%2?'#f2f6fa':'#fff',stroke:'#c9d3de'});
+    T(gx+12,yy+rh/2+7,p,{fs:20,fw:700});
+    ['D1','D2','D3','D4','D5','D6','D7'].forEach((d,i)=>{const v=grid[p][d];if(v)txt(gx+70+i*cwid+cwid/2,yy+rh/2+7,v,{fs:19,fw:700,fill:v.includes('C')||v.includes('U')?'#8a5a00':'#1f4e79'});});});
+  T(gx,gy+50+9*rh+34,'C create · R read · U update',{fs:18,fill:'#555'});
+  // bullets
+  const by=y+50;
+  [['Answers the Sprint 2 feedback:','"The ERD contains well over twenty entities; the DFDs only show a small number of data stores."'],
+   ['16 entities, 7 stores:','every ERD entity belongs to exactly one data store, and every store lists its entities on every DFD.'],
+   ['Removed or merged:','ROLE and JOB_STATUS are now checked columns; NOTIFICATION and JOB_NOTE are columns on REPAIR_JOB; EMAIL_TEMPLATE, PO_JOB_LINK and backup_log were dropped.'],
+   ['Every store is maintained:','each store is created by at least one process and read by at least one, so no store is a black hole or a miracle.']]
+   .forEach(([a,b],i)=>{const e=mk('text',{x:40,y:by+i*44,'font-size':20,fill:'#222'});
+      const s1=mk('tspan',{'font-weight':700,fill:'#1f4e79'},e);s1.textContent=a+' ';const s2=mk('tspan',{},e);s2.textContent=b;});
+}
+
+function render(){
+  const key=Q.get('d')||'level0';
+  if(key==='align'){D.align={W:1920,H:980,title:'QuickPhone — DFD and ERD alignment',sub:'Each DFD data store holds a fixed set of ERD entities; the grid shows which processes create, read and update each store.',custom:alignSlide};}
+  const d=D[key];
+  FS=key==='level0'?19:19;
+  const H=d.H+TY;
+  svg=document.getElementById('s');svg.setAttribute('width',d.W);svg.setAttribute('height',H);
+  const st=document.createElement('style');st.textContent=`@page{size:${d.W}px ${H}px;margin:0}`;document.head.appendChild(st);
+  root=svg;
+  mk('rect',{x:0,y:0,width:d.W,height:H,fill:'#fff'});
+  const defs=mk('defs',{});const m=mk('marker',{id:'arr',viewBox:'0 0 14 10',refX:13,refY:5,markerWidth:14,markerHeight:10,markerUnits:'userSpaceOnUse',orient:'auto'},defs);
+  mk('path',{d:'M0,0 L14,5 L0,10 z',fill:C.line},m);
+  txt(40,42,d.title+(key==='align'?'':PHYS?' (physical)':' (logical)'),{fs:32,fw:700,anchor:'start',fill:'#1f4e79'});
+  if(d.sub)txt(40,80,pick(d.sub),{fs:20,anchor:'start',fill:'#555'});
+  root=mk('g',{transform:`translate(0,${TY})`},svg);
+  if(d.custom){d.custom();document.title='done';return;}
+  const gb=mk('g',{});
+  const nodes=d.nodes.filter(keep),N={};nodes.forEach(n=>N[n.id]=n);
+  const gl=mk('g',{}),gn=mk('g',{});
+  PENDING=[];SEGS=[];
+  (d.anch||[]).forEach(([k,py,sy])=>{const [fr,to]=L0[k];const pf=fr[0]==='p';
+    const fy=pf?py:sy,ty=pf?sy:py;d.flows.push(L(k,{ao:[0,fy-N[fr].y],bo:[0,ty-N[to].y]}));});d.anch=null;
+  root=gl;d.flows.filter(keep).forEach(f=>{f=Object.assign({},f,{label:pick(f.label)});
+    if(!N[f.from]||!N[f.to])throw new Error('missing node '+f.from+'→'+f.to);drawFlow(f,N);});
+  root=gn;nodes.forEach(drawNode);
+  const top=gn.parentNode;
+  [...gl.querySelectorAll('text')].forEach(t=>top.appendChild(t));
+  if(d.boundary&&PHYS){root=gb;boundary(d.boundary);top.appendChild(gb.querySelector('text'));}
+  const gLab=mk('g',{},top);placeLabels(N,top,gLab);PENDING=null;
+  if(d.legend){const [lx,ly,ls]=d.legend;root=mk('g',{transform:`translate(0,${TY})`+(ls?` translate(${lx},${ly}) scale(${ls}) translate(${-lx},${-ly})`:'')},svg);legend(lx,ly);}
+  document.title='done';
+}
+// ?d=dump lists every flow of the chosen view as JSON (diagram, from, to, name, Level 0 key), for the data flow
+// dictionary and the unique-name check (SAD 8e Fig. 4-24).
+function dump(){const out=[];
+  for(const [k,d] of Object.entries(D)){const N={};d.nodes.filter(keep).forEach(n=>N[n.id]=n);
+    const nm=id=>{const x=N[id],l=x.label.replace(/\n/g,' ');return x.type==='entity'?l:x.num+' '+l;};
+    [...d.flows,...(d.anch||[]).map(([kk])=>L(kk))].filter(keep)
+      .forEach(f=>out.push({d:k,from:nm(f.from),to:nm(f.to),name:pick(f.label).replace(/\n/g,' '),k:f.k||''}));}
+  document.body.innerHTML='<pre id="o"></pre>';document.getElementById('o').textContent=JSON.stringify(out);}
+if(Q.get('d')==='dump')dump();else
+try{render();}catch(e){document.body.innerHTML='<pre style="font-size:30px;color:red">'+e.stack+'</pre>';}
+</script></body></html>
