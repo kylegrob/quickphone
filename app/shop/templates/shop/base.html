@@ -16,7 +16,7 @@
   </a>
   <nav class="nav" aria-label="Main">
     {% for url, label, on in nav_items %}
-      <a href="{{ url }}" class="{% if on %}on{% endif %}" {% if on %}aria-current="page"{% endif %}>{{ label }}{% if label == "Inventory and POs" and low_stock_count %}<span class="badge" title="Parts at or below reorder point">{{ low_stock_count }}</span>{% endif %}</a>
+      <a href="{{ url }}" class="{% if on %}on{% endif %}" {% if on %}aria-current="page"{% endif %}>{{ label }}{% if label == "Inventory" and low_stock_count %}<span class="badge" title="Parts at or below reorder point">{{ low_stock_count }}</span>{% endif %}</a>
     {% endfor %}
   </nav>
   <div class="who">

@@ -10,6 +10,7 @@ from django.db.models import Q
 
 OWNER, MANAGER, TECHNICIAN, FRONT_DESK = "Owner", "Manager", "Technician", "Front Desk"
 ROLES = [OWNER, MANAGER, TECHNICIAN, FRONT_DESK]
+DEVICE_TYPES = ["Phone", "Tablet", "Laptop", "Game console", "Other"]
 
 CHECKED_IN, DIAGNOSING, AWAITING_APPROVAL, IN_REPAIR = "Checked In", "Diagnosing", "Awaiting Approval", "In Repair"
 AWAITING_PARTS, READY, UNREPAIRED, CLOSED = "Awaiting Parts", "Ready for Pickup", "Returned Unrepaired", "Closed"
@@ -87,6 +88,27 @@ class Employee(AbstractBaseUser):
         return self.role == TECHNICIAN
 
 
+class ScreenAccess(models.Model):
+    """The Owner's override of which roles open which screen. No row means the default in
+    permissions.SCREENS applies (2026-10-30)."""
+
+    screen_access_id = models.AutoField(primary_key=True)
+    role = models.CharField(max_length=12, choices=choices(ROLES))
+    screen = models.CharField(max_length=20)
+    allowed = models.BooleanField()
+    updated_by = models.ForeignKey(
+        Employee, on_delete=models.PROTECT, db_column="updated_by_id", null=True, blank=True, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "screen_access"
+        constraints = [
+            models.UniqueConstraint(fields=["role", "screen"], name="screen_access_uq"),
+            models.CheckConstraint(condition=Q(role__in=ROLES), name="screen_access_role_ck"),
+        ]
+
+
 # D1 Customers & Devices --------------------------------------------------------
 
 class Customer(models.Model):
@@ -118,6 +140,23 @@ class Device(models.Model):
 
     def __str__(self):
         return " ".join(p for p in [self.brand, self.model] if p)
+
+
+class DeviceModel(models.Model):
+    """The list check-in picks a device from. Staff add a model here when it is missing (2026-10-30)."""
+
+    device_model_id = models.AutoField(primary_key=True)
+    device_type = models.CharField(max_length=20, choices=choices(DEVICE_TYPES))
+    brand = models.CharField(max_length=40)
+    model = models.CharField(max_length=60)
+
+    class Meta:
+        db_table = "device_model"
+        ordering = ["brand", "model"]
+        constraints = [models.UniqueConstraint(fields=["brand", "model"], name="device_model_uq")]
+
+    def __str__(self):
+        return f"{self.brand} {self.model}"
 
 
 # D2 Appointments ---------------------------------------------------------------
@@ -177,12 +216,17 @@ class Part(models.Model):
     device_model = models.CharField(max_length=60, blank=True, null=True)
     grade = models.CharField(max_length=20, blank=True, null=True)
     standard_cost = models.DecimalField(max_digits=10, decimal_places=2)
+    # Repair labor charged each time this part is fitted; set by the Owner (2026-10-30), feeds the quote.
+    labor_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     active_flag = models.BooleanField(default=True)
 
     class Meta:
         db_table = "part"
         ordering = ["part_name", "device_model"]
-        constraints = [models.CheckConstraint(condition=Q(standard_cost__gte=0), name="part_cost_ck")]
+        constraints = [
+            models.CheckConstraint(condition=Q(standard_cost__gte=0), name="part_cost_ck"),
+            models.CheckConstraint(condition=Q(labor_cost__gte=0), name="part_labor_ck"),
+        ]
 
     def __str__(self):
         return f"{self.part_name}, {self.device_model}" if self.device_model else self.part_name
@@ -347,6 +391,10 @@ class RepairJob(models.Model):
     @property
     def current_quote(self):
         return self.quotes.order_by("-quote_id").first()
+
+    @property
+    def has_approved_quote(self):
+        return self.quotes.filter(decision=Q_APPROVED).exists()
 
     @property
     def amount_paid(self):

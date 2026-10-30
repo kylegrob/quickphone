@@ -28,7 +28,7 @@
       <span class="pill {{ job.status|slugify }}">{{ job.status }}</span></div>
     {% include "shop/_steps.html" %}
     <dl class="kv">
-      <dt>Customer</dt><dd>{{ job.customer }} <span class="muted">(contact details hidden for the Technician role)</span></dd>
+      <dt>Customer</dt><dd>{{ job.customer }} {% if user.role == "Technician" %}<span class="muted">(contact details hidden for the Technician role)</span>{% endif %}</dd>
       <dt>Reported problem</dt><dd>{{ job.reported_issue }}</dd>
       <dt>Condition</dt><dd>{{ job.intake_condition|default:"Not recorded" }}</dd>
       {% if job.device_passcode %}<dt>Passcode</dt><dd>{% if passcode %}<span class="mono">{{ passcode }}</span>{% else %}On file; visible once the job is assigned to you{% endif %}</dd>{% endif %}
@@ -41,40 +41,38 @@
     {% endif %}
   </section>
 
-  {% if job.status == "Diagnosing" %}
-  <form method="post" class="card" id="quote-form">{% csrf_token %}<input type="hidden" name="action" value="quote">
-    <h2>Diagnosis and quote</h2>
-    <label for="dx">Diagnosis</label>
-    <textarea id="dx" name="diagnosis_notes" maxlength="2000" placeholder="Findings and tests performed" required>{{ job.diagnosis_notes|default:"" }}</textarea>
-    <label for="filter">Parts needed</label>
-    <input type="search" id="filter" placeholder="Filter parts by name, model or SKU">
-    <table style="margin-top:8px">
-      <thead><tr><th>Use</th><th>Part needed</th><th class="num">On hand</th><th class="num">Qty</th><th class="num">Cost</th></tr></thead>
-      <tbody>{% for p in parts %}
-        <tr>
-          <td><input type="checkbox" name="use_{{ p.pk }}" id="use_{{ p.pk }}" data-cost="{{ p.standard_cost }}" style="width:24px;height:24px" {% if p.quoted %}checked{% endif %}></td>
-          <td><label for="use_{{ p.pk }}" style="margin:0;font-weight:400">{{ p }}<div class="part-sub"><span class="sku">{{ p.sku }}</span>{% if p.grade %} · {{ p.grade }}{% endif %}</div></label></td>
-          <td class="num">{% if p.on_hand %}{{ p.on_hand }}{% else %}<span class="pill out">Out</span>{% endif %}</td>
-          <td class="num"><input type="number" name="qty_{{ p.pk }}" value="{{ p.quoted|default:1 }}" min="1" class="w-num" aria-label="Quantity of {{ p }}"></td>
-          <td class="num">${{ p.standard_cost }}</td></tr>
-      {% endfor %}</tbody>
-    </table>
-    <p class="hint">Parts that are out of stock can still be quoted. When the customer approves, the job waits in Awaiting Parts and a Manager orders them.</p>
-    <div class="row" style="align-items:end">
-      <div><label for="labor">Labor cost ($)</label><input type="number" id="labor" name="labor_amount" min="0" step="0.01" value="{{ quote.labor_amount|default:'0' }}"></div>
-      <div class="totals" style="grid-column: span 2"><span>Parts</span><span id="t-parts">$0.00</span><span>Labor</span><span id="t-labor">$0.00</span>
-        <span class="grand">Quote total</span><span class="grand" id="t-total">$0.00</span></div>
-    </div>
-    <div class="actions" style="margin-top:18px">
-      <button class="btn primary">Send quote for approval</button>
-      <button class="btn danger" name="action" value="unrepairable" formnovalidate onclick="return confirm('Mark as not repairable? The diagnosis box is used as the reason. No fee is charged.')">Cannot be repaired</button>
-    </div>
-  </form>
+  {% if has_approved or job.status == "Awaiting Approval" or job.status == "Ready for Pickup" %}
+  <section class="card"><h2>Quote</h2>{% include "shop/_quotes.html" %}
+    {% if job.status == "Awaiting Approval" %}<p class="note-box">Waiting for Front Desk to record the customer's decision. Repair cannot continue until it is approved.</p>{% endif %}</section>
   {% endif %}
 
-  {% if job.status == "Awaiting Approval" or job.status == "In Repair" or job.status == "Awaiting Parts" or job.status == "Ready for Pickup" %}
-  <section class="card"><h2>Quote</h2>{% include "shop/_quote.html" %}
-    {% if job.status == "Awaiting Approval" %}<p class="note-box">Waiting for Front Desk to record the customer's decision.</p>{% endif %}</section>
+  {% if job.status == "Diagnosing" or job.status == "In Repair" and has_approved %}
+  <form method="post" class="card" id="quote-form">{% csrf_token %}
+    {% if job.status == "In Repair" %}
+      <h2>Additional repair</h2>
+      <p class="muted">Only if the device needs a repair beyond the quote the customer approved. The customer must approve the additional quote before the repair continues.</p>
+      <label for="dx">Why is the additional repair needed?</label>
+    {% else %}
+      <h2>{% if has_approved %}Diagnosis{% else %}Diagnosis and quote{% endif %}</h2>
+      {% if has_approved %}<p class="muted">The customer approved the quote above at check-in. If the diagnosis agrees, start the repair; no second approval is needed.</p>{% endif %}
+      <label for="dx">Diagnosis</label>
+    {% endif %}
+    <textarea id="dx" name="diagnosis_notes" maxlength="2000" placeholder="Findings and tests performed" required>{% if job.status == "Diagnosing" %}{{ job.diagnosis_notes|default:"" }}{% endif %}</textarea>
+    {% if has_approved and job.status == "Diagnosing" %}
+      <p><button class="btn primary" name="action" value="confirm" formnovalidate>Diagnosis confirmed: start the approved repair</button></p>
+    {% endif %}
+    {% if has_approved %}<details {% if job.status == "In Repair" %}open{% endif %} style="margin-top:12px"><summary><strong>{% if job.status == "In Repair" %}Parts for the additional repair{% else %}An additional repair is needed{% endif %}</strong></summary>{% endif %}
+    {% include "shop/_quote_picker.html" with form_id="quote-form" %}
+    <div class="actions" style="margin-top:18px">
+      <button class="btn {% if has_approved and job.status == 'Diagnosing' %}{% else %}primary{% endif %}" name="action" value="quote">{% if has_approved %}Send additional repair for approval{% else %}Send quote for approval{% endif %}</button>
+    </div>
+    {% if has_approved %}</details>{% endif %}
+    {% if job.status == "Diagnosing" %}
+    <div class="actions" style="margin-top:18px">
+      <button class="btn danger" name="action" value="unrepairable" formnovalidate onclick="return confirm('Mark as not repairable? The diagnosis box is used as the reason. No fee is charged.')">Cannot be repaired</button>
+    </div>
+    {% endif %}
+  </form>
   {% endif %}
 
   {% if job.status == "In Repair" or job.status == "Awaiting Parts" %}
@@ -125,29 +123,4 @@
 {% endif %}
 </div>
 </div>
-{% endblock %}
-{% block scripts %}
-<script>
-// Live quote total while the technician picks parts (Prototype A). The server recalculates on save.
-const form = document.getElementById('quote-form');
-if (form) {
-  const money = n => '$' + n.toFixed(2);
-  function total() {
-    let parts = 0;
-    form.querySelectorAll('input[type=checkbox][data-cost]').forEach(c => {
-      if (c.checked) parts += parseFloat(c.dataset.cost) * (parseInt(form.querySelector('[name=' + c.name.replace('use_', 'qty_') + ']').value) || 0);
-    });
-    const labor = parseFloat(form.labor_amount.value) || 0;
-    document.getElementById('t-parts').textContent = money(parts);
-    document.getElementById('t-labor').textContent = money(labor);
-    document.getElementById('t-total').textContent = money(parts + labor);
-  }
-  form.addEventListener('input', total);
-  total();
-  document.getElementById('filter').addEventListener('input', e => {
-    const q = e.target.value.toLowerCase();
-    form.querySelectorAll('tbody tr').forEach(r => { r.hidden = q && !r.textContent.toLowerCase().includes(q); });
-  });
-}
-</script>
 {% endblock %}

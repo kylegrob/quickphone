@@ -1,0 +1,6 @@
+{# Every quote on the job, oldest first. The first is the one shown at check-in; later ones are additional repairs. #}
+{% for quote in quotes %}
+  {% if quotes|length > 1 %}<h3>{% if forloop.first %}Original quote{% else %}Additional repair {{ forloop.counter0 }}{% endif %}</h3>{% endif %}
+  {% include "shop/_quote.html" %}
+{% empty %}<p class="muted">No quote yet.</p>{% endfor %}
+{% if quotes|length > 1 and job.final_cost is not None %}<p><strong>Approved total: ${{ job.final_cost|floatformat:2 }}</strong></p>{% endif %}

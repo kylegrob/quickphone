@@ -71,16 +71,27 @@
       <span class="label">Device</span>
       <div class="pick">
         {% for d in customer.devices.all %}<label><input type="radio" name="device_id" value="{{ d.pk }}" {% if forloop.first %}checked{% endif %}><strong>{{ d }}</strong>{{ d.device_type|default:"" }}{% if d.serial_or_imei %} · {{ d.serial_or_imei }}{% endif %}</label>{% endfor %}
-        <label><input type="radio" name="device_id" value=""><strong>Another device</strong>Enter it below</label>
+        <label><input type="radio" name="device_id" value=""><strong>Another device</strong>Pick it below</label>
       </div>
     {% endif %}
-    <span class="label">Device type</span>
-    <div class="chips">{% for t in device_types %}<label class="chip"><input type="radio" name="device_type" value="{{ t }}" {% if post.device_type == t or not post.device_type and forloop.first %}checked{% endif %}>{{ t }}</label>{% endfor %}</div>
-    <div class="row">
-      <div><label for="brand">Brand (optional)</label><input type="text" id="brand" name="brand" value="{{ post.brand }}" maxlength="40" placeholder="Apple"></div>
-      <div><label for="model">Model</label><input type="text" id="model" name="model" value="{{ post.model }}" maxlength="60" placeholder="iPhone 13"></div>
-      <div><label for="serial">Serial or IMEI (optional)</label><input type="text" id="serial" name="serial_or_imei" value="{{ post.serial_or_imei }}" maxlength="40"></div>
-    </div>
+    <label for="device_model">{% if customer and customer.devices.all %}Another device: pick it from the list{% else %}Device{% endif %}</label>
+    <select id="device_model" name="device_model_id">
+      <option value="">Choose brand and model</option>
+      {% regroup device_models by brand as groups %}
+      {% for g in groups %}<optgroup label="{{ g.grouper }}">{% for d in g.list %}<option value="{{ d.pk }}" {% if post.device_model_id == d.pk|stringformat:"s" %}selected{% endif %}>{{ d.model }} ({{ d.device_type }})</option>{% endfor %}</optgroup>{% endfor %}
+    </select>
+    <details {% if post.new_model or post.new_brand %}open{% endif %} style="margin:10px 0">
+      <summary><strong>Device not on the list? Add it</strong></summary>
+      <p class="hint">The new model joins the list for every check-in. Check the list first so the same device is not added twice.</p>
+      <span class="label">Device type</span>
+      <div class="chips">{% for t in device_types %}<label class="chip"><input type="radio" name="new_type" value="{{ t }}" {% if post.new_type == t or not post.new_type and forloop.first %}checked{% endif %}>{{ t }}</label>{% endfor %}</div>
+      <div class="row">
+        <div><label for="new_brand">Brand</label><input type="text" id="new_brand" name="new_brand" list="brand-list" value="{{ post.new_brand }}" maxlength="40" placeholder="Apple" autocomplete="off"><datalist id="brand-list">{% for b in brands %}<option value="{{ b }}">{% endfor %}</datalist></div>
+        <div><label for="new_model">Model</label><input type="text" id="new_model" name="new_model" value="{{ post.new_model }}" maxlength="60" placeholder="iPhone 16"></div>
+      </div>
+    </details>
+    <label for="serial">Serial or IMEI (optional)</label>
+    <input type="text" id="serial" name="serial_or_imei" value="{{ post.serial_or_imei }}" maxlength="40">
     <label for="issue">Reported problem</label>
     <input type="text" id="issue" name="reported_issue" value="{{ post.reported_issue }}" maxlength="500" required placeholder="Cracked screen">
     <label for="cond">Condition at intake (optional)</label>
@@ -90,9 +101,14 @@
       <p class="hint">Only for camera replacements. Stored encrypted; seen by the assigned technician, Managers and the Owner.</p></div>
       <div><label for="tech">Technician</label>
       <select id="tech" name="technician_id"><option value="">Leave open for a technician to claim</option>
-        {% for t in technicians %}<option value="{{ t.pk }}" {% if t.pk == preselected_tech %}selected{% endif %}>{{ t.first_name }} {{ t.last_name }}</option>{% endfor %}
+        {% for t in technicians %}<option value="{{ t.pk }}" {% if t.pk == preselected_tech %}selected{% endif %}>{{ t.first_name }} {{ t.last_name }}{% if t.role != "Technician" %} ({{ t.role }}){% endif %}</option>{% endfor %}
       </select></div>
     </div>
+
+    <h2 id="quote-h" style="margin-top:24px">Repair quote</h2>
+    <p class="muted">Tick the repair the customer wants. The quote is the part cost plus the labor the Owner has set for that repair. If the customer agrees, repair starts on this quote with no second approval, unless the technician later finds an additional repair. Leave it blank if the device needs diagnosis first.</p>
+    {% include "shop/_quote_picker.html" with form_id="checkin-form" %}
+    <label style="font-weight:400;display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="quote_approved" {% if post.quote_approved %}checked{% endif %} style="width:22px;height:22px"> The customer approves this quote</label>
   </form>
 </div>
 

@@ -44,7 +44,7 @@
     <span class="label">Technician</span>
     <div class="pick" id="techs">
       <label><input type="radio" name="technician_id" value="" checked><strong>Leave open</strong>A technician can claim it</label>
-      {% for t in technicians %}<label data-tech="{{ t.pk }}"><input type="radio" name="technician_id" value="{{ t.pk }}" {% if appointment.technician_id == t.pk %}checked{% endif %}><strong>{{ t.first_name }}</strong><span class="state">Pick a time first</span></label>{% endfor %}
+      {% for t in technicians %}<label data-tech="{{ t.pk }}"><input type="radio" name="technician_id" value="{{ t.pk }}" {% if appointment.technician_id == t.pk %}checked{% endif %}><strong>{{ t.first_name }}{% if t.role != "Technician" %} ({{ t.role }}){% endif %}</strong><span class="state">Pick a time first</span></label>{% endfor %}
     </div>
     <p class="actions" style="margin-top:22px"><button class="btn primary" type="submit">{% if appointment %}Save new time{% else %}Book appointment{% endif %}</button>
     <a class="btn" href="{% url 'checkin' %}?date={{ day|date:'Y-m-d' }}">Cancel</a></p>

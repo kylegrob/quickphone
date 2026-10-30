@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from .. import models as m
 from .. import services
-from ..permissions import STOCK_ROLES, role_required
+from ..permissions import PRICE_ROLES, screen_required
 from .common import attempt, to_int
 
 
@@ -26,7 +26,7 @@ def _rows(store):
     return rows
 
 
-@role_required(*STOCK_ROLES)
+@screen_required("inventory")
 def inventory(request):
     store, user = request.store, request.user
     if request.method == "POST":
@@ -60,7 +60,7 @@ def inventory(request):
     })
 
 
-@role_required(*STOCK_ROLES)
+@screen_required("inventory")
 def part_edit(request, pk=None):
     part = get_object_or_404(m.Part, pk=pk) if pk else m.Part()
     stock = m.StorePartStock.objects.filter(store=request.store, part=part).first() if pk else None
@@ -74,6 +74,14 @@ def part_edit(request, pk=None):
         except InvalidOperation:
             errors.append("Enter a unit cost of 0 or more.")
             cost = None
+        labor = part.labor_cost
+        if request.user.role in PRICE_ROLES:
+            try:
+                labor = Decimal(p.get("labor_cost") or "0")
+                if labor < 0:
+                    raise InvalidOperation
+            except InvalidOperation:
+                errors.append("Enter a labor cost of 0 or more.")
         if not p.get("sku", "").strip() or not p.get("part_name", "").strip():
             errors.append("Enter the SKU and part name.")
         elif m.Part.objects.filter(sku__iexact=p["sku"].strip()).exclude(pk=part.pk).exists():
@@ -82,6 +90,8 @@ def part_edit(request, pk=None):
             part.sku, part.part_name = p["sku"].strip().upper(), p["part_name"].strip()
             part.device_model, part.grade = p.get("device_model", "").strip() or None, p.get("grade", "").strip() or None
             part.standard_cost = cost
+            if request.user.role in PRICE_ROLES:
+                part.labor_cost = labor
             part.default_supplier = m.Supplier.objects.filter(pk=p.get("supplier_id") or 0).first()
             part.active_flag = p.get("active_flag") == "on" if pk else True
             with transaction.atomic():
@@ -98,7 +108,7 @@ def part_edit(request, pk=None):
         for e in errors:
             messages.error(request, e)
     return render(request, "shop/part_form.html", {
-        "part": part, "stock": stock, "suppliers": m.Supplier.objects.filter(active_flag=True),
+        "part": part, "stock": stock, "can_price": request.user.role in PRICE_ROLES, "suppliers": m.Supplier.objects.filter(active_flag=True),
         "txns": m.InventoryTxn.objects.filter(store=request.store, part=part).select_related("recorded_by")[:15]
         if pk else [],
     })
@@ -108,7 +118,7 @@ IMPORT_COLUMNS = ["sku", "part_name", "device_model", "grade", "standard_cost", 
                   "quantity_on_hand", "reorder_point"]
 
 
-@role_required(*STOCK_ROLES)
+@screen_required("inventory")
 def import_csv(request):
     """FR11: import existing parts. The whole file is checked first; if any row is
     invalid nothing is imported and every bad row is listed, so no data is lost silently."""
@@ -171,7 +181,7 @@ def import_csv(request):
 
 # Purchase orders (UC-08 to UC-10) ---------------------------------------------
 
-@role_required(*STOCK_ROLES)
+@screen_required("orders")
 def po_list(request):
     status = request.GET.get("status", "")
     orders = m.PurchaseOrder.objects.filter(store=request.store).select_related("supplier", "created_by", "approved_by")
@@ -181,7 +191,7 @@ def po_list(request):
     return render(request, "shop/po_list.html", {"orders": orders, "status": status, "counts": counts})
 
 
-@role_required(*STOCK_ROLES)
+@screen_required("orders")
 def po_detail(request, pk):
     po = get_object_or_404(m.PurchaseOrder.objects.select_related("supplier", "store"), pk=pk, store=request.store)
     user = request.user

@@ -10,23 +10,23 @@ from django.shortcuts import get_object_or_404, redirect, render
 from .. import models as m
 from .. import services
 from ..crypto import decrypt_passcode
-from ..permissions import BENCH_ROLES, can_see_passcode, role_required
-from .common import attempt, to_int
+from ..permissions import can_see_passcode, screen_required
+from .common import attempt, picker_parts, quote_lines, to_int
 from .desk import _steps
 
 
-def _visible(user):
-    return m.RepairJob.objects.filter(store=user.store).filter(
+def _visible(user, store):
+    return m.RepairJob.objects.filter(store=store).filter(
         Q(assigned_tech=user) | Q(assigned_tech__isnull=True, status=m.CHECKED_IN)
     ).select_related("device")
 
 
-@role_required(*BENCH_ROLES)
+@screen_required("bench")
 def bench(request, pk=None):
-    user = request.user
-    mine = _visible(user).filter(assigned_tech=user).exclude(status=m.CLOSED)
-    open_jobs = _visible(user).filter(assigned_tech__isnull=True)
-    job = get_object_or_404(_visible(user), pk=pk) if pk else mine.first()
+    user, store = request.user, request.store
+    mine = _visible(user, store).filter(assigned_tech=user).exclude(status=m.CLOSED)
+    open_jobs = _visible(user, store).filter(assigned_tech__isnull=True)
+    job = get_object_or_404(_visible(user, store), pk=pk) if pk else mine.first()
 
     if request.method == "POST" and job:
         action = request.POST.get("action")
@@ -36,15 +36,15 @@ def bench(request, pk=None):
             attempt(request, services.claim, job, user, success=f"{job.ticket_number} is now in your queue.")
         elif action == "start":
             attempt(request, services.start_diagnosis, job, user)
+        elif action == "confirm":
+            attempt(request, services.confirm_repair, job, user, request.POST.get("diagnosis_notes", ""),
+                    success="Repair started on the quote the customer approved at check-in.")
         elif action == "quote":
-            lines = []
-            for p in m.Part.objects.filter(active_flag=True):
-                n = to_int(request.POST.get(f"qty_{p.pk}"))
-                if request.POST.get(f"use_{p.pk}") and n > 0:
-                    lines.append((p, n))
+            extra = job.has_approved_quote
             attempt(request, services.submit_quote, job, user, request.POST.get("diagnosis_notes", ""),
-                    request.POST.get("labor_amount") or "0", lines,
-                    success="Quote sent. Front Desk records the customer's decision.")
+                    None, quote_lines(request.POST),
+                    success="Additional repair sent. Front Desk records the customer's decision." if extra
+                    else "Quote sent. Front Desk records the customer's decision.")
         elif action == "unrepairable":
             attempt(request, services.mark_unrepairable, job, user, request.POST.get("diagnosis_notes", ""),
                     success="Marked as not repairable. No diagnostic fee is charged.")
@@ -63,17 +63,18 @@ def bench(request, pk=None):
 
     ctx = {"mine": mine, "open_jobs": open_jobs, "job": job}
     if job:
-        stock = {s.part_id: s.quantity_on_hand for s in m.StorePartStock.objects.filter(store=user.store)}
-        quote = job.current_quote
-        quoted = {line.part_id: line.quantity for line in quote.lines.all()} if quote else {}
-        parts = list(m.Part.objects.filter(active_flag=True))
+        quotes = list(job.quotes.order_by("quote_id").prefetch_related("lines__part"))
+        quoted = {}
+        for q in quotes:
+            if q.decision == m.Q_APPROVED:
+                for line in q.lines.all():
+                    quoted[line.part_id] = quoted.get(line.part_id, 0) + line.quantity
+        parts = picker_parts(store, job.device.model)
         for p in parts:
-            p.on_hand, p.quoted = stock.get(p.pk, 0), quoted.get(p.pk, 0)
-        # Parts for this device model first, so the likely picks are at the top.
-        model = (job.device.model or "").lower()
-        parts.sort(key=lambda p: (not (p.device_model and p.device_model.lower() in model), p.part_name))
+            p.quoted = quoted.get(p.pk, 0)
         ctx.update({
-            "steps": _steps(job), "quote": quote, "parts": parts,
+            "steps": _steps(job), "quote": quotes[-1] if quotes else None, "quotes": quotes,
+            "has_approved": any(q.decision == m.Q_APPROVED for q in quotes), "parts": parts,
             "used": job.parts.filter(part_status=m.PART_USED).select_related("part"),
             "needed": job.parts.filter(part_status=m.PART_NEEDED).select_related("part", "purchase_order"),
             "history": job.history.select_related("changed_by"),

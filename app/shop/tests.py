@@ -37,6 +37,9 @@ class Base(TestCase):
     def on_hand(self, sku, store=None):
         return m.StorePartStock.objects.get(store=store or self.store1, part__sku=sku).quantity_on_hand
 
+    def listed(self, model):
+        return m.DeviceModel.objects.get(model=model)
+
     def job(self, issue):
         return m.RepairJob.objects.get(reported_issue=issue)
 
@@ -46,7 +49,7 @@ class CheckInTests(Base):
         self.login(self.desk)
         r = self.client.post(reverse("checkin"), {
             "first_name": "Test", "last_name": "Walkin", "phone": "(919) 555-0999", "email": "",
-            "device_type": "Phone", "brand": "Apple", "model": "iPhone 11", "reported_issue": "Speaker crackles",
+            "device_model_id": self.listed("iPhone 11").pk, "reported_issue": "Speaker crackles",
             "technician_id": "",
         })
         job = m.RepairJob.objects.get(reported_issue="Speaker crackles")
@@ -79,6 +82,286 @@ class CheckInTests(Base):
         self.assertContains(self.client.get(reverse("job_detail", args=[job.pk])), "482916")
         self.login(self.sam)
         self.assertContains(self.client.get(reverse("bench_job", args=[job.pk])), "482916")
+
+
+class QuoteAtCheckInTests(Base):
+    """Owner, 2026-10-30: quote shown at check-in from part cost plus the Owner's labor; re-approved
+    only for an additional repair. Technician, Manager and Owner can check in and repair."""
+
+    def check_in(self, user, lines, approved=True, tech=None, issue="Cracked screen at counter"):
+        cust = m.Customer.objects.get(last_name="Walsh")
+        dev = m.Device.objects.create(customer=cust, model="iPhone 13", brand="Apple")
+        return s.check_in(user, self.store1, dev, issue, "", "", tech, None, lines, approved)
+
+    def test_quote_is_part_cost_plus_owner_labor_and_stored_approved(self):
+        job = self.check_in(self.desk, [(self.part("QP-SCR-IP13"), 1), (self.part("QP-ADH-KIT"), 1)])
+        q = job.current_quote
+        self.assertEqual((q.parts_amount, q.labor_amount, q.total_amount),
+                         (Decimal("64.00"), Decimal("55.00"), Decimal("119.00")))
+        self.assertEqual((q.decision, q.decision_by), (m.Q_APPROVED, self.desk))
+        self.assertEqual((job.final_cost, job.status), (Decimal("119.00"), m.CHECKED_IN))
+        self.assertEqual(q.lines.count(), 2)
+
+    def test_quote_needs_the_customer_to_approve_it(self):
+        with self.assertRaises(s.RuleError):
+            self.check_in(self.desk, [(self.part("QP-SCR-IP13"), 1)], approved=False)
+        self.assertFalse(m.RepairJob.objects.filter(reported_issue="Cracked screen at counter").exists())
+
+    def test_checkin_without_parts_has_no_quote(self):
+        job = self.check_in(self.desk, [], approved=False)
+        self.assertIsNone(job.current_quote)
+
+    def test_checkin_screen_posts_a_quote(self):
+        self.login(self.desk)
+        cust = m.Customer.objects.get(last_name="Walsh")
+        scr = self.part("QP-SCR-IP13")
+        self.client.post(reverse("checkin"), {
+            "customer_id": cust.pk, "device_model_id": self.listed("iPhone 13").pk, "reported_issue": "Screen via form",
+            f"use_{scr.pk}": "on", f"qty_{scr.pk}": "1", "quote_approved": "on"})
+        job = self.job("Screen via form")
+        self.assertEqual(job.current_quote.total_amount, Decimal("117.00"))
+        self.assertContains(self.client.get(reverse("checkin")), "Repair quote")
+
+    def test_confirmed_diagnosis_starts_repair_without_second_approval(self):
+        job = self.check_in(self.desk, [(self.part("QP-BAT-IP12"), 1)], tech=self.sam)
+        s.start_diagnosis(job, self.sam)
+        s.confirm_repair(job, self.sam, "Battery fails load test.")
+        self.assertEqual(job.status, m.IN_REPAIR)
+        self.assertEqual(job.quotes.count(), 1)
+
+    def test_confirm_needs_an_approved_quote(self):
+        job = self.job("Joy-Con drift")
+        s.claim(job, self.sam)
+        s.start_diagnosis(job, self.sam)
+        with self.assertRaises(s.RuleError):
+            s.confirm_repair(job, self.sam, "Looks fine")
+
+    def test_out_of_stock_approved_quote_waits_for_parts(self):
+        job = self.check_in(self.desk, [(self.part("QP-SCR-IP14"), 1)], tech=self.sam)  # none on hand
+        s.start_diagnosis(job, self.sam)
+        s.confirm_repair(job, self.sam, "Panel dead.")
+        self.assertEqual(job.status, m.AWAITING_PARTS)
+        self.assertTrue(job.parts.filter(part__sku="QP-SCR-IP14", part_status=m.PART_NEEDED).exists())
+
+    def test_additional_repair_needs_approval_and_adds_to_total(self):
+        job = self.check_in(self.desk, [(self.part("QP-BAT-IP12"), 1)], tech=self.sam)  # 28 + 40
+        s.start_diagnosis(job, self.sam)
+        s.confirm_repair(job, self.sam, "Battery fails.")
+        s.submit_quote(job, self.sam, "Port is also damaged.", None, [(self.part("QP-CHG-USBC"), 1)])  # 15 + 35
+        self.assertEqual(job.status, m.AWAITING_APPROVAL)
+        with self.assertRaises(s.RuleError):
+            s.record_part_used(job, self.sam, self.part("QP-BAT-IP12"), 1)  # no work until approved
+        s.record_decision(job, self.desk, True)
+        self.assertEqual((job.status, job.final_cost), (m.IN_REPAIR, Decimal("118.00")))
+        self.assertIn("Additional repair: Port is also damaged.", job.diagnosis_notes)
+
+    def test_declined_additional_repair_keeps_the_approved_one(self):
+        job = self.check_in(self.desk, [(self.part("QP-BAT-IP12"), 1)], tech=self.sam)
+        s.start_diagnosis(job, self.sam)
+        s.confirm_repair(job, self.sam, "Battery fails.")
+        s.submit_quote(job, self.sam, "Port is also damaged.", None, [(self.part("QP-CHG-USBC"), 1)])
+        s.record_decision(job, self.desk, False)
+        self.assertEqual((job.status, job.final_cost), (m.IN_REPAIR, Decimal("68.00")))
+
+    def test_unrepairable_drops_the_quote_fee(self):
+        job = self.check_in(self.desk, [(self.part("QP-BAT-IP12"), 1)], tech=self.sam)
+        s.start_diagnosis(job, self.sam)
+        s.mark_unrepairable(job, self.sam, "Board is dead.")
+        self.assertIsNone(job.final_cost)
+
+    def test_technician_checks_in_but_cannot_open_the_job_list(self):
+        self.login(self.sam)
+        self.assertEqual(self.client.get(reverse("checkin")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("appointment_new")).status_code, 200)
+        cust = m.Customer.objects.get(last_name="Walsh")
+        r = self.client.post(reverse("checkin"), {"customer_id": cust.pk, "device_model_id": self.listed("Pixel 7").pk,
+                                                  "reported_issue": "Tech walk-in", "technician_id": self.sam.pk})
+        job = self.job("Tech walk-in")
+        self.assertRedirects(r, reverse("job_ticket", args=[job.pk]))
+        self.assertEqual(job.history.get().changed_by, self.sam)
+        self.assertEqual(self.client.get(reverse("jobs")).status_code, 403)
+
+    def test_manager_and_owner_repair_devices(self):
+        for user in (self.manager, self.owner):
+            job = self.check_in(self.desk, [(self.part("QP-BAT-IP12"), 1)], issue=f"Bench {user.role}")
+            self.login(user)
+            self.client.post(reverse("bench_job", args=[job.pk]), {"action": "claim"})
+            job.refresh_from_db()
+            self.assertEqual(job.assigned_tech, user)
+            for action, data in [("start", {}), ("confirm", {"diagnosis_notes": "ok"}),
+                                 ("use_part", {"part_id": self.part("QP-BAT-IP12").pk, "quantity": 1}),
+                                 ("complete", {"repair_notes": "done"})]:
+                self.client.post(reverse("bench_job", args=[job.pk]), {"action": action, **data})
+            job.refresh_from_db()
+            self.assertEqual(job.status, m.READY, user.role)
+            self.assertEqual(self.client.get(reverse("bench")).status_code, 200)
+
+    def test_manager_can_be_assigned_a_job_but_front_desk_cannot(self):
+        job = self.job("Joy-Con drift")
+        s.assign(job, self.manager, self.manager)
+        with self.assertRaises(s.RuleError):
+            s.assign(job, self.desk, self.manager)
+
+    def test_only_owner_sets_labor(self):
+        scr = self.part("QP-SCR-IP13")
+        form = {"sku": scr.sku, "part_name": scr.part_name, "device_model": scr.device_model, "standard_cost": "62.00"}
+        self.login(self.manager)
+        self.client.post(reverse("part_edit", args=[scr.pk]), {**form, "labor_cost": "99.00", "active_flag": "on"})
+        scr.refresh_from_db()
+        self.assertEqual(scr.labor_cost, Decimal("55.00"))
+        self.login(self.owner)
+        self.client.post(reverse("part_edit", args=[scr.pk]), {**form, "labor_cost": "99.00", "active_flag": "on"})
+        scr.refresh_from_db()
+        self.assertEqual(scr.labor_cost, Decimal("99.00"))
+
+
+class DeviceListTests(Base):
+    """Check-in picks a device from a list; staff add one that is missing (2026-10-30)."""
+
+    def post(self, user=None, **fields):
+        self.login(user or self.desk)
+        cust = m.Customer.objects.get(last_name="Walsh")
+        return self.client.post(reverse("checkin"), {"customer_id": cust.pk, "reported_issue": "List test", **fields})
+
+    def test_starter_list_is_loaded_and_offered_at_check_in(self):
+        self.assertTrue(m.DeviceModel.objects.filter(brand="Apple", model="iPhone 13").exists())
+        self.login(self.desk)
+        self.assertContains(self.client.get(reverse("checkin")), "iPhone 13")
+
+    def test_listed_device_is_copied_to_the_customer_device(self):
+        self.post(device_model_id=self.listed("Galaxy S22").pk)
+        d = self.job("List test").device
+        self.assertEqual((d.brand, d.model, d.device_type), ("Samsung", "Galaxy S22", "Phone"))
+
+    def test_free_text_model_is_refused_without_the_add_step(self):
+        self.post(model="Made Up 9", brand="Nobody")
+        self.assertFalse(m.RepairJob.objects.filter(reported_issue="List test").exists())
+        self.assertFalse(m.DeviceModel.objects.filter(model="Made Up 9").exists())
+
+    def test_unknown_list_id_is_refused(self):
+        self.post(device_model_id="99999")
+        self.assertFalse(m.RepairJob.objects.filter(reported_issue="List test").exists())
+
+    def test_missing_device_can_be_added_and_is_then_on_the_list(self):
+        self.post(user=self.sam, new_type="Phone", new_brand="Apple", new_model="iPhone 16")
+        entry = m.DeviceModel.objects.get(model="iPhone 16")
+        self.assertEqual((entry.brand, entry.device_type), ("Apple", "Phone"))
+        self.assertEqual(self.job("List test").device.model, "iPhone 16")
+
+    def test_a_picked_or_added_device_wins_over_the_device_on_file(self):
+        cust = m.Customer.objects.get(last_name="Santos")
+        on_file = cust.devices.first()
+        self.login(self.desk)
+        self.client.post(reverse("checkin"), {"customer_id": cust.pk, "device_id": on_file.pk,
+                                              "new_type": "Phone", "new_brand": "Motorola", "new_model": "Moto G Power",
+                                              "reported_issue": "Other device"})
+        self.assertEqual(self.job("Other device").device.model, "Moto G Power")
+        self.client.post(reverse("checkin"), {"customer_id": cust.pk, "device_id": on_file.pk,
+                                              "reported_issue": "Same device"})
+        self.assertEqual(self.job("Same device").device, on_file)
+
+    def test_adding_an_existing_device_does_not_duplicate_it(self):
+        before = m.DeviceModel.objects.count()
+        self.post(new_type="Phone", new_brand="apple", new_model="IPHONE 13")
+        self.assertEqual(m.DeviceModel.objects.count(), before)
+        self.assertEqual(self.job("List test").device.model, "iPhone 13")
+
+    def test_add_needs_brand_model_and_type(self):
+        for fields in ({"new_brand": "Apple"}, {"new_model": "X"}, {"new_brand": "A", "new_model": "B", "new_type": "Toaster"}):
+            self.post(**fields)
+        self.assertFalse(m.RepairJob.objects.filter(reported_issue="List test").exists())
+
+
+class ScreenAccessTests(Base):
+    """The Owner opens or closes screens for each role (2026-10-30). Defaults match the earlier role rules."""
+
+    def save(self, **boxes):
+        """Posts the matrix as the Owner, with the defaults ticked plus the given changes ({'inventory|Front Desk': True})."""
+        from .permissions import SCREENS
+        data = {f"{screen}|{role}": "on" for screen, (_, roles) in SCREENS.items() for role in roles}
+        for key, on in boxes.items():
+            data.pop(key, None)
+            if on:
+                data[key] = "on"
+        self.login(self.owner)
+        return self.client.post(reverse("access"), data)
+
+    def test_defaults_match_the_role_rules(self):
+        self.login(self.desk)
+        self.assertEqual(self.client.get(reverse("inventory")).status_code, 403)
+        self.assertEqual(self.client.get(reverse("checkin")).status_code, 200)
+        self.login(self.sam)
+        self.assertEqual(self.client.get(reverse("jobs")).status_code, 403)
+        self.assertEqual(self.client.get(reverse("bench")).status_code, 200)
+
+    def test_saving_the_defaults_stores_nothing(self):
+        self.save()
+        self.assertEqual(m.ScreenAccess.objects.count(), 0)
+
+    def test_owner_can_open_a_screen_for_a_role(self):
+        self.save(**{"inventory|Front Desk": True})
+        self.assertEqual(m.ScreenAccess.objects.get().allowed, True)
+        self.login(self.desk)
+        self.assertEqual(self.client.get(reverse("inventory")).status_code, 200)
+        self.assertContains(self.client.get(reverse("checkin")), "Inventory")
+        self.assertEqual(self.client.get(reverse("po_list")).status_code, 403)  # orders is its own screen
+
+    def test_owner_can_close_a_screen_for_a_role(self):
+        self.save(**{"orders|Manager": False})
+        self.login(self.manager)
+        self.assertEqual(self.client.get(reverse("po_list")).status_code, 403)
+        self.assertEqual(self.client.get(reverse("inventory")).status_code, 200)
+        self.assertNotContains(self.client.get(reverse("inventory")), 'class="btn" href="/orders/"')
+
+    def test_closing_every_screen_for_a_role_gives_a_clear_refusal(self):
+        from .permissions import SCREENS
+        self.save(**{f"{screen}|Technician": False for screen in SCREENS})
+        self.login(self.sam)
+        r = self.client.get(reverse("home"))
+        self.assertEqual(r.status_code, 403)
+
+    def test_home_goes_to_the_first_open_screen(self):
+        self.save(**{"bench|Technician": False, "checkin|Technician": True, "checkin|Front Desk": True})
+        self.login(self.sam)
+        self.assertRedirects(self.client.get(reverse("home")), reverse("checkin"), target_status_code=200)
+
+    def test_only_the_owner_reaches_the_access_screen(self):
+        for user in (self.manager, self.desk, self.sam):
+            self.login(user)
+            self.assertEqual(self.client.get(reverse("access")).status_code, 403, user.role)
+            self.assertEqual(self.client.post(reverse("access"), {"inventory|Front Desk": "on"}).status_code, 403)
+        self.assertEqual(m.ScreenAccess.objects.count(), 0)
+
+    def test_owner_cannot_lock_themself_out_of_access(self):
+        from .permissions import SCREENS
+        self.save(**{f"{screen}|Owner": False for screen in SCREENS})
+        self.assertEqual(self.client.get(reverse("access")).status_code, 200)
+
+    def test_reset_restores_defaults(self):
+        self.save(**{"inventory|Front Desk": True})
+        self.client.post(reverse("access"), {"action": "reset"})
+        self.assertEqual(m.ScreenAccess.objects.count(), 0)
+        self.login(self.desk)
+        self.assertEqual(self.client.get(reverse("inventory")).status_code, 403)
+
+    def test_screen_access_does_not_override_business_rules(self):
+        self.save(**{"orders|Technician": True, "jobs|Technician": True})
+        po = m.PurchaseOrder.objects.get(po_status=m.PO_PENDING)
+        self.login(self.sam)
+        self.assertEqual(self.client.get(reverse("po_detail", args=[po.pk])).status_code, 200)
+        self.client.post(reverse("po_detail", args=[po.pk]), {"action": "approve"})
+        po.refresh_from_db()
+        self.assertEqual(po.po_status, m.PO_PENDING)  # still only a Manager or the Owner approves
+        page = self.client.get(reverse("job_detail", args=[self.job("Cracked screen").pk])).content.decode()
+        self.assertNotIn("555-0142", page)  # contact stays hidden from the Technician role
+
+    def test_the_matrix_page_lists_every_screen_and_role(self):
+        self.login(self.owner)
+        page = self.client.get(reverse("access")).content.decode()
+        for label in ("Dashboard", "Purchase orders", "Inventory and parts", "My repair jobs"):
+            self.assertIn(label, page)
+        for role in m.ROLES:
+            self.assertIn(f"<th class=\"num\" scope=\"col\">{role}</th>", page)
 
 
 class AppointmentTests(Base):
@@ -307,8 +590,7 @@ class AccessTests(Base):
         page = self.client.get(reverse("bench_job", args=[self.job("Cracked screen").pk])).content.decode()
         self.assertNotIn("555-0142", page)
         self.assertNotIn("m.santos@example.com", page)
-        self.assertEqual(self.client.get(reverse("jobs")).status_code, 403)
-        self.assertEqual(self.client.get(reverse("checkin")).status_code, 403)
+        self.assertEqual(self.client.get(reverse("jobs")).status_code, 403)  # payment and release stay with the desk
 
     def test_fr14_manager_cannot_assign_owner_role(self):
         self.login(self.manager)

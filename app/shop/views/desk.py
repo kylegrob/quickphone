@@ -11,11 +11,8 @@ from django.utils import timezone
 from .. import models as m
 from .. import services
 from ..crypto import decrypt_passcode
-from ..permissions import DESK_ROLES, EMAIL_ROLES, can_see_passcode, role_required
-from .common import attempt, get_job, store_jobs, to_int
-
-DEVICE_TYPES = ["Phone", "Tablet", "Laptop", "Game console", "Other"]
-
+from ..permissions import EMAIL_ROLES, can_see_contact, can_see_passcode, role_required, screen_required
+from .common import attempt, get_job, picker_parts, quote_lines, store_jobs, to_int
 
 def _day(value):
     try:
@@ -44,9 +41,32 @@ def _new_customer(request, errors):
     return m.Customer.objects.create(first_name=first, last_name=last, phone=phone, email=email or None)
 
 
+def _chosen_device_model(post, errors):
+    """The device picked from the list, or one the staff member just added (2026-10-30)."""
+    if post.get("device_model_id"):
+        entry = m.DeviceModel.objects.filter(pk=to_int(post["device_model_id"])).first()
+        if not entry:
+            errors.append("Pick the device from the list.")
+        return entry
+    if post.get("new_brand", "").strip() or post.get("new_model", "").strip():
+        try:
+            return services.add_device_model(post.get("new_type"), post.get("new_brand"), post.get("new_model"))
+        except services.RuleError as exc:
+            errors.append(str(exc))
+            return None
+    errors.append("Pick the device from the list, or add it if it is not there.")
+    return None
+
+
+def _model_hint(post):
+    """Model name used only to list the likeliest parts first."""
+    entry = m.DeviceModel.objects.filter(pk=to_int(post.get("device_model_id"))).first()
+    return entry.model if entry else post.get("new_model", "")
+
+
 # Check-in (UC-01, DFD 2.0) -----------------------------------------------------
 
-@role_required(*DESK_ROLES)
+@screen_required("checkin")
 def checkin(request):
     store = request.store
     day = _day(request.GET.get("date"))
@@ -65,31 +85,30 @@ def checkin(request):
             if not customer:
                 customer = _new_customer(request, errors)
             device = None
-            if customer and request.POST.get("device_id"):
+            # A device picked from the list, or added, wins over the on-file radio that is ticked by default.
+            picked_other = any(request.POST.get(k, "").strip() for k in ("device_model_id", "new_brand", "new_model"))
+            if customer and request.POST.get("device_id") and not picked_other:
                 device = customer.devices.filter(pk=request.POST["device_id"]).first()
             elif customer:
-                model = request.POST.get("model", "").strip()
-                if not model:
-                    errors.append("Enter the device model.")
-                else:
+                entry = _chosen_device_model(request.POST, errors)
+                if entry:
                     device = m.Device.objects.create(
-                        customer=customer, model=model,
-                        device_type=request.POST.get("device_type") or None,
-                        brand=request.POST.get("brand", "").strip() or None,
+                        customer=customer, model=entry.model, device_type=entry.device_type, brand=entry.brand,
                         serial_or_imei=request.POST.get("serial_or_imei", "").strip() or None)
-            tech = services.technicians(store).filter(pk=request.POST.get("technician_id") or 0).first()
+            tech = services.repairers(store).filter(pk=request.POST.get("technician_id") or 0).first()
             if device and not errors:
                 try:
                     job = services.check_in(
                         request.user, store, device, request.POST.get("reported_issue", ""),
                         request.POST.get("intake_condition", "").strip(), request.POST.get("passcode", ""),
-                        tech, appointment)
+                        tech, appointment, quote_lines(request.POST),
+                        request.POST.get("quote_approved") == "on")
                 except services.RuleError as exc:
                     errors.append(str(exc))
             if errors:
-                transaction.set_rollback(True)
                 customer = m.Customer.objects.filter(pk=customer_id).first() if customer_id else (
                     appointment.customer if appointment else None)
+                transaction.set_rollback(True)  # after the lookup: no queries run once it is set
             else:
                 messages.success(request, f"Job {job.ticket_number} created. Print the claim ticket and device tag.")
                 return redirect("job_ticket", job.pk)
@@ -104,14 +123,16 @@ def checkin(request):
         "day": day, "days": [timezone.localdate() + timedelta(days=i) for i in range(settings.APPOINTMENT_DAYS_AHEAD)],
         "appointments": appointments, "appointment": appointment, "customer": customer, "phone": phone,
         "matches": _customers_by_phone(phone) if phone and not customer else [],
-        "technicians": services.technicians(store), "device_types": DEVICE_TYPES, "post": request.POST,
+        "technicians": services.repairers(store), "device_types": m.DEVICE_TYPES, "post": request.POST,
+        "device_models": m.DeviceModel.objects.all(), "brands": m.DeviceModel.objects.order_by("brand").values_list("brand", flat=True).distinct(),
+        "parts": picker_parts(store, _model_hint(request.POST), request.POST),
         "preselected_tech": appointment.technician_id if appointment else to_int(request.POST.get("technician_id")),
     })
 
 
 # Appointments (UC-12, DFD 1.0) -------------------------------------------------
 
-@role_required(*DESK_ROLES)
+@screen_required("checkin")
 def appointment_edit(request, pk=None):
     store = request.store
     appointment = get_object_or_404(m.Appointment, pk=pk, store=store, appt_status=m.APPT_BOOKED) if pk else None
@@ -131,7 +152,7 @@ def appointment_edit(request, pk=None):
                 when = datetime.fromisoformat(request.POST.get("slot", ""))
             except ValueError:
                 errors.append("Pick a time.")
-            tech = services.technicians(store).filter(pk=request.POST.get("technician_id") or 0).first()
+            tech = services.repairers(store).filter(pk=request.POST.get("technician_id") or 0).first()
             if customer and when and not errors:
                 ok = attempt(request, services.save_appointment, store, customer, when, tech, request.user, appointment,
                              success=f"Appointment saved for {services.clock(when)} on {when:%a %b %d}.")
@@ -155,11 +176,11 @@ def appointment_edit(request, pk=None):
         "appointment": appointment, "customer": customer, "phone": phone, "day": day, "slots": slots,
         "days": [timezone.localdate() + timedelta(days=i) for i in range(settings.APPOINTMENT_DAYS_AHEAD)],
         "matches": _customers_by_phone(phone) if phone and not customer else [],
-        "technicians": services.technicians(store), "post": request.POST,
+        "technicians": services.repairers(store), "post": request.POST,
     })
 
 
-@role_required(*DESK_ROLES)
+@screen_required("checkin")
 def appointment_cancel(request, pk):
     appointment = get_object_or_404(m.Appointment, pk=pk, store=request.store)
     if request.method == "POST":
@@ -169,7 +190,7 @@ def appointment_cancel(request, pk):
 
 # Repair jobs (FR02, FR06, UC-13) ----------------------------------------------
 
-@role_required(*DESK_ROLES)
+@screen_required("jobs")
 def jobs(request):
     qs = store_jobs(request)
     if request.user.role == m.OWNER:
@@ -191,7 +212,7 @@ def jobs(request):
                                               "statuses": m.JOB_STATUSES})
 
 
-@role_required(*DESK_ROLES)
+@screen_required("jobs")
 def job_detail(request, pk):
     job = get_job(request, pk)
     if request.method == "POST":
@@ -208,14 +229,14 @@ def job_detail(request, pk):
             attempt(request, services.release_device, job, user, request.POST.get("id_verified") == "on",
                     success=f"{job.ticket_number} released and closed.")
         elif action == "assign" and user.role in (m.OWNER, m.MANAGER):
-            tech = services.technicians(job.store).filter(pk=request.POST.get("technician_id") or 0).first()
+            tech = services.repairers(job.store).filter(pk=request.POST.get("technician_id") or 0).first()
             attempt(request, services.assign, job, tech, user, success="Technician updated.")
         return redirect("job_detail", job.pk)
     quote = job.current_quote
     return render(request, "shop/job_detail.html", {
-        "job": job, "quote": quote, "steps": _steps(job),
+        "job": job, "quote": quote, "quotes": job.quotes.order_by("quote_id").prefetch_related("lines__part"), "steps": _steps(job),
         "passcode": decrypt_passcode(job.device_passcode) if can_see_passcode(request.user, job) else None,
-        "can_email": request.user.role in EMAIL_ROLES, "technicians": services.technicians(job.store),
+        "can_email": request.user.role in EMAIL_ROLES, "can_contact": can_see_contact(request.user), "technicians": services.repairers(job.store),
         "due": max((job.final_cost or 0) - job.amount_paid, 0),
         "history": job.history.select_related("changed_by"), "past_jobs": job.device.jobs.exclude(pk=job.pk),
     })
@@ -233,7 +254,7 @@ def job_notify(request, pk):
     return redirect("bench_job" if request.user.role == m.TECHNICIAN else "job_detail", job.pk)
 
 
-@role_required(*DESK_ROLES)
+@screen_required("checkin")
 def job_ticket(request, pk):
     return render(request, "shop/ticket.html", {"job": get_job(request, pk)})
 

@@ -34,7 +34,7 @@ The sample data has one Store 1 job at every step of the workflow, so each exerc
 | 1 | Check in from an appointment (Front Desk) | Check in, today's 9:30 appointment, Start check-in. Pick the iPhone 13 on file, type the problem, Create job | Customer and technician come from the appointment; ticket and tag share one number |
 | 2 | Walk-in with a new customer (Front Desk) | Search a phone number that does not exist, enter the new customer and device, leave the technician open | Searching by phone first stops duplicate customers; an open job waits for a technician to claim it |
 | 3 | Book and reschedule (Front Desk) | Book appointment for tomorrow; then Reschedule it to a time Sam is already booked | Full slots and booked technicians cannot be picked |
-| 4 | Claim and diagnose (Technician) | Claim the open Nintendo Switch job, Start diagnosis, tick parts, set labor, Send quote | The total builds as parts are ticked; customer phone and email are never shown |
+| 4 | Claim and diagnose (Technician) | Claim the open Nintendo Switch job, Start diagnosis, tick parts, Send quote | The total builds as parts are ticked, with the Owner's labor added; customer phone and email are never shown on the repair screen |
 | 5 | Record the customer's answer (Front Desk) | Repair jobs, open the iPhone 12 job (Awaiting Approval), Customer approved | Repair cannot start before approval; the history records who recorded it |
 | 6 | Repair and use parts (Technician) | Open the iPhone 13 cracked screen job, record the screen and adhesive as used, Mark ready | Stock drops the moment a part is recorded; recording more than is on hand is refused |
 | 7 | Order parts (Manager) | Inventory, Add to PO on the Galaxy S22 battery, link the waiting job, Submit; Approve; Mark as ordered; Receive delivery | Every order needs approval; receiving puts the waiting job back to In Repair |
@@ -43,6 +43,16 @@ The sample data has one Store 1 job at every step of the workflow, so each exerc
 | 10 | Both stores (Owner) | Dashboard; switch to Store 2 | Open repairs and low stock side by side |
 
 Ask trainees to finish exercises 1, 4 and 8 without help; that is the acceptance check for NFR03. Note anything that confused them; it is evidence for the Sprint 5 manual and the Change Log.
+
+## Changes from the owner (Oct 30)
+
+- **The quote is shown at check-in.** It is the part cost plus the labor the Owner sets for each part (Inventory, edit a part; only the Owner can change it). When the customer agrees, tick "The customer approves this quote"; repair then needs no second approval. Leave the parts blank when the device needs diagnosis first, and the technician quotes as before.
+- **Only an additional repair is re-approved.** From Diagnosing or In Repair the technician sends an additional repair; Front Desk records the answer. A declined additional repair leaves the approved repair going. The approved total is the sum of the approved quotes.
+- **Technicians can check in customers** and print the claim ticket, but still cannot open the job list, payment or release.
+- **Managers and the Owner can repair devices**: they can be assigned a job, claim an open one and use the same repair screen ("My repair jobs").
+- **Brand and model come from a list.** Check-in picks the device from a list (grouped by brand); "Device not on the list? Add it" adds a new type, brand and model for everyone. A model added with different capitalization is matched to the existing one. The starter list is in `shop/device_catalog.py`.
+- **The Owner sets screen access by role.** The Access screen (Owner only) is a table of seven screens by four roles; the defaults are the earlier fixed rules and only changed boxes are stored. It controls which screens a role can open. It does not change the rules inside a screen: only a Manager or the Owner approves a purchase order, technicians work only on their own jobs, customer phone and email stay hidden from the Technician role, and only the Owner can give the Owner role. Opening Staff, suppliers and stores lets a role create accounts in its own store.
+- Open for the owner: technicians now see customer phone and email on the check-in screen only; labor is charged per part times quantity, so a labor-only repair needs a zero-cost "service" part.
 
 ## Business rules decided for this build (Oct 28)
 

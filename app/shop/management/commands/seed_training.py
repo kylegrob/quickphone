@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from shop import models as m
 from shop import services as s
+from shop.device_catalog import STARTER_DEVICES
 
 TRAINING_PASSWORD = "QuickPhone-Training-26"
 
@@ -48,6 +49,10 @@ PARTS = [
     ("QP-CHG-USBC", "Charging port", "Pixel 7", "OEM", "15.00", 2, (5, 2), (2, 2)),
     ("QP-CAM-IP13", "Rear camera", "iPhone 13", "OEM", "55.00", 2, (2, 1), (0, 1)),
 ]
+# Repair labor the Owner has set for each part (placeholder prices for training, not the client's).
+LABOR = {"QP-SCR-IP13": "55.00", "QP-SCR-IP14": "60.00", "QP-DIG-IPD9": "50.00", "QP-HBF-IPD9": "30.00",
+         "QP-BAT-IP12": "40.00", "QP-BAT-S22": "45.00", "QP-BAT-A54": "40.00", "QP-CHG-USBC": "35.00",
+         "QP-CAM-IP13": "50.00"}
 CUSTOMERS = [
     ("Maria", "Santos", "(919) 555-0142", "m.santos@example.com"),
     ("David", "Okafor", "(919) 555-0157", "d.okafor@example.com"),
@@ -84,11 +89,14 @@ class Command(BaseCommand):
         for first, last, email, role, si in STAFF:
             staff[first] = m.Employee.objects.create_user(email, TRAINING_PASSWORD, first_name=first,
                                                          last_name=last, role=role, store=stores[si])
+        for device_type, brand, model in STARTER_DEVICES:
+            m.DeviceModel.objects.get_or_create(brand=brand, model=model, defaults={"device_type": device_type})
         suppliers = [m.Supplier.objects.create(supplier_name=n, contact_name=c, phone=p) for n, c, p in SUPPLIERS]
         parts = {}
         for sku, name, model, grade, cost, si, st1, st2 in PARTS:
             part = m.Part.objects.create(sku=sku, part_name=name, device_model=model, grade=grade,
-                                         standard_cost=Decimal(cost), default_supplier=suppliers[si])
+                                         standard_cost=Decimal(cost), labor_cost=Decimal(LABOR.get(sku, "0")),
+                                         default_supplier=suppliers[si])
             parts[sku] = part
             for store, (qty, reorder) in zip(stores, (st1, st2)):
                 m.StorePartStock.objects.create(store=store, part=part, reorder_point=reorder)
@@ -153,6 +161,9 @@ class Command(BaseCommand):
         s.start_diagnosis(j, jordan)
         s.mark_unrepairable(j, jordan, "Liquid damage to the board; keyboard controller failed. Not repairable.")
         job(s1, device(maria, "Game console", "Nintendo", "Switch"), "Joy-Con drift", None)
+        # Quoted at the counter and approved at check-in, so the technician needs no second approval.
+        s.check_in(desk, s1, device(david, "Phone", "Samsung", "Galaxy A54"), "Battery drains fast", "", "", sam,
+                   None, [(parts["QP-BAT-A54"], 1)], True)
 
         # A Manager's purchase order waiting for approval, linked to the iPhone 14 job.
         po = s.add_to_po(s1, parts["QP-SCR-IP14"], 3, morgan)

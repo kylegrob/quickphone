@@ -13,7 +13,7 @@
   <section class="card">
     {% include "shop/_steps.html" %}
     <dl class="kv">
-      <dt>Customer</dt><dd><strong>{{ job.customer }}</strong> · {{ job.customer.phone }} · {{ job.customer.email|default:"no email on file" }}</dd>
+      <dt>Customer</dt><dd><strong>{{ job.customer }}</strong>{% if can_contact %} · {{ job.customer.phone }} · {{ job.customer.email|default:"no email on file" }}{% else %} <span class="muted">(contact details hidden for the Technician role)</span>{% endif %}</dd>
       <dt>Device</dt><dd>{{ job.device.device_type|default:"" }} {{ job.device }}{% if job.device.serial_or_imei %} · <span class="mono">{{ job.device.serial_or_imei }}</span>{% endif %}</dd>
       <dt>Reported problem</dt><dd>{{ job.reported_issue }}</dd>
       <dt>Condition</dt><dd>{{ job.intake_condition|default:"Not recorded" }}</dd>
@@ -24,7 +24,7 @@
         {% if user.role == "Owner" or user.role == "Manager" %}{% if job.status != "Closed" %}
           <form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="action" value="assign">
             <select name="technician_id" aria-label="Technician" style="width:auto"><option value="">Open (unassigned)</option>
-            {% for t in technicians %}<option value="{{ t.pk }}" {% if t.pk == job.assigned_tech_id %}selected{% endif %}>{{ t.first_name }} {{ t.last_name }}</option>{% endfor %}</select>
+            {% for t in technicians %}<option value="{{ t.pk }}" {% if t.pk == job.assigned_tech_id %}selected{% endif %}>{{ t.first_name }} {{ t.last_name }}{% if t.role != "Technician" %} ({{ t.role }}){% endif %}</option>{% endfor %}</select>
             <button class="btn small">Assign</button></form>
         {% else %}{{ job.assigned_tech|default:"Open" }}{% endif %}
         {% else %}{{ job.assigned_tech|default:"Open, waiting for a technician to claim it" }}{% endif %}</dd>
@@ -35,9 +35,9 @@
 
   <section class="card">
     <h2>Quote</h2>
-    {% include "shop/_quote.html" %}
+    {% include "shop/_quotes.html" %}
     {% if job.status == "Awaiting Approval" %}
-      <div class="note-box" style="margin-top:14px">Call the customer with the quote, then record their answer. Repair cannot start until it is approved.</div>
+      <div class="note-box" style="margin-top:14px">Call the customer with the quote, then record their answer. Repair cannot start or continue until it is approved.</div>
       <div class="actions" style="margin-top:14px">
         <form method="post" class="inline">{% csrf_token %}<input type="hidden" name="action" value="approve"><button class="btn primary">Customer approved</button></form>
         <form method="post" class="inline" onsubmit="return confirm('Record that the customer declined? The device goes back unrepaired.')">{% csrf_token %}<input type="hidden" name="action" value="decline"><button class="btn danger">Customer declined</button></form>

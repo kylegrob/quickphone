@@ -1,0 +1,28 @@
+{% extends "shop/base.html" %}
+{% block title %}Access{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Screen access</h1>
+  <p>Choose which roles can open each screen. Only the Owner sees this page, and it cannot be switched off.</p></div>
+</div>
+
+<form method="post" class="card">{% csrf_token %}
+  <table>
+    <thead><tr><th>Screen</th>{% for r in roles %}<th class="num" scope="col">{{ r }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for row in rows %}
+      <tr>
+        <th scope="row" style="font-weight:600">{{ row.label }}</th>
+        {% for c in row.cells %}<td class="num"><input type="checkbox" name="{{ c.name }}" {% if c.on %}checked{% endif %} style="width:24px;height:24px" aria-label="{{ c.role }} can open {{ row.label }}">{% if c.changed %}<div class="part-sub">changed</div>{% endif %}</td>{% endfor %}
+      </tr>
+    {% endfor %}</tbody>
+  </table>
+  <p class="hint">"Changed" marks a box that differs from the default. A person sees a change the next time they open a screen.</p>
+  <div class="note-box">
+    Screen access does not change the rules inside a screen. Purchase orders are still approved only by a Manager or the Owner, a technician still works only on their own jobs, customer phone and email stay hidden from the Technician role, and only the Owner can give the Owner role. Opening <strong>Staff, suppliers and stores</strong> lets a role create and edit accounts in its own store, so give it sparingly.
+  </div>
+  <div class="actions" style="margin-top:18px">
+    <button class="btn primary">Save access</button>
+    <button class="btn danger" name="action" value="reset" formnovalidate onclick="return confirm('Put every screen back to its default access?')">Reset to defaults</button>
+  </div>
+</form>
+{% endblock %}

@@ -77,6 +77,8 @@ The OneDrive folder also held `ERD Diagram.docx`, an exact duplicate of the Spri
 
 | File | Status | Notes |
 |---|---|---|
+| sprint-4/drafts/ (Requirements Catalog and Memo, Use Cases) | Draft | Sprint 3 documents revised for the Oct 30 owner direction: quote at check-in, one approval, Technician check-in, Manager and Owner repair, device list, Owner-set screen access (FR15 added). DFDs and the use case diagram image are not yet updated |
+| deliverables/Sprint4_models/ (local only: `deliverables/` is git-ignored) | Draft | ERD slide source and renders for 19 entities (QUOTE_LINE, DEVICE_MODEL, SCREEN_ACCESS added; PART.sku, PART.labor_cost); `render_erd.sh` rebuilds `slides/`. `dfd_slides.html` holds partial, unreviewed DFD edits from a session that was stopped, so the DFDs are not yet updated |
 | [../app/](../app/README.md) | Draft | Working system for the training session: Django 5.2 + PostgreSQL, Prototype A screens, 17 tables (ERD + QUOTE_LINE), 38 automated tests, resettable training data and a 60-minute session plan. Oct 28 build decisions and the documents they affect are in [project-context.md](project-context.md) |
 | Specification document | Not started | Needs the test cases and results from `app/shop/tests.py` |
 

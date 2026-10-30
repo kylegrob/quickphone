@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-head">
   <div><h1>Parts inventory</h1><p>Low stock means at or below the reorder point. A Manager approves every purchase order.</p></div>
-  <div class="actions"><a class="btn" href="{% url 'po_list' %}">Purchase orders</a><a class="btn" href="{% url 'inventory_import' %}">Import CSV</a><a class="btn" href="{% url 'part_new' %}">Add part</a></div>
+  <div class="actions">{% if open_screens.orders %}<a class="btn" href="{% url 'po_list' %}">Purchase orders</a>{% endif %}<a class="btn" href="{% url 'inventory_import' %}">Import CSV</a><a class="btn" href="{% url 'part_new' %}">Add part</a></div>
 </div>
 
 {% if low_rows %}<div class="alert-box" role="alert"><strong>Low-stock alert:</strong> {{ low_rows|length }} part{{ low_rows|length|pluralize }} at or below the reorder point at {{ active_store.store_name }}:

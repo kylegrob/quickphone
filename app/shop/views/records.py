@@ -1,5 +1,6 @@
 """Home routing, the Owner's dashboard (FR13) and shop records: staff, suppliers, stores (FR14)."""
 from django.contrib import messages
+from django.db import transaction
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.password_validation import ValidationError, validate_password
 from django.core.exceptions import PermissionDenied
@@ -8,14 +9,20 @@ from django.utils.http import url_has_allowed_host_and_scheme
 
 from .. import models as m
 from .. import services
-from ..permissions import STOCK_ROLES, role_required
+from ..permissions import NAV, SCREENS, can_open, role_required, screen_required
 
 HOME = {m.OWNER: "dashboard", m.MANAGER: "inventory", m.TECHNICIAN: "bench", m.FRONT_DESK: "checkin"}
 
 
 @login_required
 def home(request):
-    return redirect(HOME[request.user.role])
+    """The role's usual first screen, or the first one the Owner has left open to it."""
+    urls = {key: url for key, _, url in NAV}
+    first = [k for k, url in urls.items() if url == HOME[request.user.role]]
+    for key in first + list(urls):
+        if can_open(request, key):
+            return redirect(urls[key])
+    raise PermissionDenied("No screens are open to your role. Ask the Owner.")
 
 
 @role_required(m.OWNER)
@@ -29,7 +36,7 @@ def switch_store(request):
     return redirect(target or "home")
 
 
-@role_required(m.OWNER)
+@screen_required("dashboard")
 def dashboard(request):
     stores = []
     for store in m.Store.objects.all():
@@ -51,7 +58,7 @@ def _staff_scope(user):
     return qs if user.role == m.OWNER else qs.filter(store=user.store)
 
 
-@role_required(*STOCK_ROLES)
+@screen_required("staff")
 def staff(request):
     return render(request, "shop/staff.html", {
         "staff": _staff_scope(request.user).order_by("store_id", "role", "first_name"),
@@ -60,7 +67,7 @@ def staff(request):
     })
 
 
-@role_required(*STOCK_ROLES)
+@screen_required("staff")
 def staff_edit(request, pk=None):
     user = request.user
     employee = get_object_or_404(_staff_scope(user), pk=pk) if pk else m.Employee(store=user.store)
@@ -105,7 +112,7 @@ def staff_edit(request, pk=None):
     return render(request, "shop/staff_form.html", {"employee": employee, "stores": stores, "roles": roles})
 
 
-@role_required(*STOCK_ROLES)
+@screen_required("staff")
 def supplier_edit(request, pk=None):
     supplier = get_object_or_404(m.Supplier, pk=pk) if pk else m.Supplier()
     if request.method == "POST":
@@ -126,7 +133,7 @@ def supplier_edit(request, pk=None):
     return render(request, "shop/supplier_form.html", {"supplier": supplier})
 
 
-@role_required(*STOCK_ROLES)
+@screen_required("staff")
 def store_edit(request, pk):
     if request.user.role != m.OWNER and request.user.store_id != pk:
         raise PermissionDenied("Managers maintain their own store only.")
@@ -142,3 +149,36 @@ def store_edit(request, pk):
             messages.success(request, f"{store} saved.")
             return redirect("staff")
     return render(request, "shop/store_form.html", {"store": store})
+
+
+# Access: which roles open which screen (NFR01, 2026-10-30) ---------------------------
+
+@role_required(m.OWNER)
+def access(request):
+    """Owner-only, and not itself in the matrix, so the Owner cannot lock themselves out."""
+    if request.method == "POST":
+        if request.POST.get("action") == "reset":
+            m.ScreenAccess.objects.all().delete()
+            messages.success(request, "Every screen is back to its default access.")
+            return redirect("access")
+        with transaction.atomic():
+            for screen, (_, defaults) in SCREENS.items():
+                for role in m.ROLES:
+                    want = request.POST.get(f"{screen}|{role}") == "on"
+                    if want == (role in defaults):
+                        m.ScreenAccess.objects.filter(role=role, screen=screen).delete()
+                    else:
+                        m.ScreenAccess.objects.update_or_create(
+                            role=role, screen=screen, defaults={"allowed": want, "updated_by": request.user})
+        messages.success(request, "Access saved. It applies the next time each person opens a screen.")
+        return redirect("access")
+    overrides = {(a.role, a.screen): a for a in m.ScreenAccess.objects.select_related("updated_by")}
+    rows = []
+    for screen, (label, defaults) in SCREENS.items():
+        cells = []
+        for role in m.ROLES:
+            override = overrides.get((role, screen))
+            cells.append({"role": role, "name": f"{screen}|{role}", "on": override.allowed if override else role in defaults,
+                          "changed": override is not None})
+        rows.append({"label": label, "cells": cells})
+    return render(request, "shop/access.html", {"rows": rows, "roles": m.ROLES})

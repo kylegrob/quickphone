@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from . import models as m
 from .crypto import encrypt_passcode
-from .permissions import ALLOW_SELF_APPROVAL_OF_PO, EMAIL_ROLES, PO_APPROVER_ROLES
+from .permissions import ALLOW_SELF_APPROVAL_OF_PO, BENCH_ROLES, EMAIL_ROLES, PO_APPROVER_ROLES
 
 
 class RuleError(Exception):
@@ -50,6 +50,17 @@ def technicians(store):
     return m.Employee.objects.filter(store=store, role=m.TECHNICIAN, active_flag=True)
 
 
+def repairers(store):
+    """Who can be given a job: the store's technicians and Manager, and the Owner (2026-10-30)."""
+    return m.Employee.objects.filter(active_flag=True).filter(
+        Q(store=store, role__in=[m.TECHNICIAN, m.MANAGER]) | Q(role=m.OWNER)
+    ).order_by("role", "first_name")
+
+
+def can_repair_at(employee, store):
+    return employee.role in BENCH_ROLES and (employee.role == m.OWNER or employee.store_id == store.pk)
+
+
 def booked(store, when, exclude=None):
     qs = m.Appointment.objects.filter(store=store, scheduled_at=when, appt_status=m.APPT_BOOKED)
     return qs.exclude(pk=exclude.pk) if exclude else qs
@@ -66,7 +77,7 @@ def save_appointment(store, customer, when, technician, user, appointment=None):
         raise RuleError("That time is full. Pick another time.")
     if technician and booked(store, when, appointment).filter(technician=technician).exists():
         raise RuleError(f"{technician.first_name} is booked at {clock(when)}. Pick another technician or time.")
-    if technician and (technician.store_id != store.pk or technician.role != m.TECHNICIAN):
+    if technician and not can_repair_at(technician, store):
         raise RuleError("Pick a technician from this store.")
     appointment = appointment or m.Appointment(store=store)
     appointment.customer, appointment.scheduled_at, appointment.technician = customer, when, technician
@@ -83,11 +94,56 @@ def cancel_appointment(appointment):
 
 # 2.0 Register Repair Job (FR02 to FR04, UC-01) ------------------------------------
 
+def add_device_model(device_type, brand, model):
+    """Adds a device to the check-in list, or returns the one already there (any capitalization)."""
+    brand, model = " ".join((brand or "").split()), " ".join((model or "").split())
+    if not brand or not model:
+        raise RuleError("Enter the brand and model of the device to add.")
+    if device_type not in m.DEVICE_TYPES:
+        raise RuleError("Pick the type of the device to add.")
+    if len(brand) > 40 or len(model) > 60:
+        raise RuleError("The brand or model name is too long.")
+    existing = m.DeviceModel.objects.filter(brand__iexact=brand, model__iexact=model).first()
+    return existing or m.DeviceModel.objects.create(device_type=device_type, brand=brand, model=model)
+
+
+def quote_amounts(lines):
+    """(parts, labor) for a list of (Part, quantity). Parts at standard cost; labor is the
+    Owner's labor cost per part, times the quantity (2026-10-30)."""
+    parts = sum((part.standard_cost * qty for part, qty in lines), Decimal("0"))
+    labor = sum((part.labor_cost * qty for part, qty in lines), Decimal("0"))
+    return parts, labor
+
+
+def _build_quote(job, lines, labor=None):
+    if any(qty <= 0 for _, qty in lines):
+        raise RuleError("Part quantities must be at least 1.")
+    parts_amount, priced_labor = quote_amounts(lines)
+    labor = priced_labor if labor is None else Decimal(labor)
+    if labor < 0:
+        raise RuleError("Labor cannot be negative.")
+    quote = m.Quote.objects.create(repair_job=job, labor_amount=labor, parts_amount=parts_amount,
+                                   total_amount=labor + parts_amount)
+    for part, qty in lines:
+        m.QuoteLine.objects.create(quote=quote, part=part, quantity=qty, unit_cost=part.standard_cost)
+    return quote
+
+
+def _approved_total(job):
+    return sum((q.total_amount for q in job.quotes.filter(decision=m.Q_APPROVED)), Decimal("0"))
+
+
 @transaction.atomic
-def check_in(user, store, device, reported_issue, intake_condition="", passcode="", technician=None, appointment=None):
+def check_in(user, store, device, reported_issue, intake_condition="", passcode="", technician=None, appointment=None,
+             quote_lines=(), quote_approved=False):
+    """quote_lines: (Part, quantity) pairs the customer has chosen. The quote is shown at the counter and,
+    once the customer agrees, is stored as approved so repair needs no second approval (owner, 2026-10-30)."""
     if not reported_issue.strip():
         raise RuleError("Enter the reported problem.")
-    if technician and (technician.store_id != store.pk or technician.role != m.TECHNICIAN):
+    if quote_lines and not quote_approved:
+        raise RuleError("Tick that the customer approves the quote, or clear the parts so the technician "
+                        "quotes after diagnosis.")
+    if technician and not can_repair_at(technician, store):
         raise RuleError("Pick a technician from this store.")
     if appointment:
         if appointment.appt_status != m.APPT_BOOKED:
@@ -100,16 +156,22 @@ def check_in(user, store, device, reported_issue, intake_condition="", passcode=
         device_passcode=encrypt_passcode(passcode.strip()),
     )
     job.ticket_number = f"QP-{1000 + job.pk}"
+    note = "Checked in" + (" from appointment" if appointment else " as walk-in")
+    if quote_lines:
+        quote = _build_quote(job, list(quote_lines))
+        quote.decision, quote.decision_at, quote.decision_by = m.Q_APPROVED, timezone.now(), user
+        quote.save()
+        job.final_cost = quote.total_amount
+        note += f"; quote ${quote.total_amount:.2f} approved by the customer"
     job.save()
-    m.JobStatusHistory.objects.create(repair_job=job, status=m.CHECKED_IN, changed_by=user,
-                                      note="Checked in" + (" from appointment" if appointment else " as walk-in"))
+    m.JobStatusHistory.objects.create(repair_job=job, status=m.CHECKED_IN, changed_by=user, note=note)
     return job
 
 
 def assign(job, technician, user):
     if job.status == m.CLOSED:
         raise RuleError("A closed job cannot be reassigned.")
-    if technician and (technician.store_id != job.store_id or technician.role != m.TECHNICIAN):
+    if technician and not can_repair_at(technician, job.store):
         raise RuleError("Pick a technician from this store.")
     job.assigned_tech = technician
     job.save()
@@ -118,10 +180,10 @@ def assign(job, technician, user):
 
 
 def claim(job, tech):
-    """Technicians may assign themselves to an open job (owner, Oct 23 #4)."""
+    """Anyone who repairs may assign themselves to an open job (owner, Oct 23 #4 and 2026-10-30)."""
     if job.assigned_tech_id:
         raise RuleError("This job is already assigned.")
-    if job.store_id != tech.store_id:
+    if not can_repair_at(tech, job.store):
         raise RuleError("This job belongs to another store.")
     assign(job, tech, tech)
 
@@ -146,26 +208,45 @@ def stock_for(store, part):
 
 @transaction.atomic
 def submit_quote(job, tech, diagnosis_notes, labor_amount, lines):
-    """lines: list of (Part, quantity). Builds the quote and asks for the customer's decision."""
+    """lines: list of (Part, quantity). Builds the quote and asks for the customer's decision.
+
+    labor_amount None prices the labor from the Owner's labor cost per part. A job that already has an
+    approved quote (from check-in) is quoted again only for an additional repair, from Diagnosing or
+    In Repair; the customer must approve it before the repair continues (owner, 2026-10-30)."""
+    _require_own_job(job, tech)
+    additional = job.has_approved_quote
+    if job.status != m.DIAGNOSING and not (additional and job.status == m.IN_REPAIR):
+        raise RuleError("A quote can only be sent while the job is Diagnosing"
+                        + (" or In Repair." if additional else "."))
+    if not diagnosis_notes.strip():
+        raise RuleError("Enter the diagnosis before sending the quote." if not additional
+                        else "Say why the additional repair is needed.")
+    if additional and not lines:
+        raise RuleError("Pick the parts for the additional repair.")
+    existing = job.diagnosis_notes
+    notes = diagnosis_notes.strip()
+    if existing and job.status == m.IN_REPAIR:
+        notes = existing + "\nAdditional repair: " + notes
+    job.diagnosis_notes = notes[-2000:]
+    job.quotes.filter(decision=m.Q_PENDING).delete()
+    quote = _build_quote(job, lines, labor_amount)
+    set_status(job, m.AWAITING_APPROVAL, tech,
+               f"{'Additional repair quote' if additional else 'Quote'} ${quote.total_amount:.2f} sent for approval")
+    return quote
+
+
+@transaction.atomic
+def confirm_repair(job, tech, diagnosis_notes):
+    """Diagnosis agrees with the quote the customer approved at check-in: no second approval."""
     _require_own_job(job, tech)
     if job.status != m.DIAGNOSING:
-        raise RuleError("A quote can only be sent while the job is Diagnosing.")
+        raise RuleError("Repair is confirmed while the job is Diagnosing.")
+    if not job.has_approved_quote:
+        raise RuleError("There is no approved quote. Send a quote for approval instead.")
     if not diagnosis_notes.strip():
-        raise RuleError("Enter the diagnosis before sending the quote.")
-    labor = Decimal(labor_amount)
-    if labor < 0:
-        raise RuleError("Labor cannot be negative.")
-    if any(qty <= 0 for _, qty in lines):
-        raise RuleError("Part quantities must be at least 1.")
+        raise RuleError("Enter the diagnosis before starting the repair.")
     job.diagnosis_notes = diagnosis_notes.strip()
-    job.quotes.filter(decision=m.Q_PENDING).delete()
-    parts_amount = sum((part.standard_cost * qty for part, qty in lines), Decimal("0"))
-    quote = m.Quote.objects.create(repair_job=job, labor_amount=labor, parts_amount=parts_amount,
-                                   total_amount=labor + parts_amount)
-    for part, qty in lines:
-        m.QuoteLine.objects.create(quote=quote, part=part, quantity=qty, unit_cost=part.standard_cost)
-    set_status(job, m.AWAITING_APPROVAL, tech, f"Quote ${quote.total_amount:.2f} sent for approval")
-    return quote
+    _resume(job, tech, "Diagnosis confirmed the approved quote")
 
 
 def mark_unrepairable(job, tech, notes):
@@ -177,49 +258,67 @@ def mark_unrepairable(job, tech, notes):
         raise RuleError("Say why the device cannot be repaired.")
     job.diagnosis_notes = notes.strip()
     job.completed_at = timezone.now()
+    job.final_cost = None  # a quote approved at check-in is not charged
     set_status(job, m.UNREPAIRED, tech, "Cannot be repaired")
 
 
 def _shortages(job):
-    """Quote lines the store cannot cover from stock right now, as (part, quantity short)."""
-    quote = job.quotes.filter(decision=m.Q_APPROVED).order_by("-quote_id").first()
-    if not quote:
-        return []
+    """Parts across every approved quote that the store cannot cover from stock right now,
+    as (part, quantity still needed, quantity short)."""
+    wanted = {}
+    for quote in job.quotes.filter(decision=m.Q_APPROVED):
+        for line in quote.lines.select_related("part"):
+            part, qty = wanted.get(line.part_id, (line.part, 0))
+            wanted[line.part_id] = (part, qty + line.quantity)
     used = {}
     for jp in job.parts.filter(part_status=m.PART_USED):
         used[jp.part_id] = used.get(jp.part_id, 0) + jp.quantity
     short = []
-    for line in quote.lines.select_related("part"):
-        still_needed = line.quantity - used.get(line.part_id, 0)
-        stock = stock_for(job.store, line.part)
+    for part_id, (part, qty) in wanted.items():
+        still_needed = qty - used.get(part_id, 0)
+        stock = stock_for(job.store, part)
         on_hand = stock.quantity_on_hand if stock else 0
         if still_needed > on_hand:
-            short.append((line.part, still_needed - on_hand))
+            short.append((part, still_needed, still_needed - on_hand))
     return short
+
+
+def _resume(job, user, note):
+    """Work goes ahead on the approved quotes: In Repair, or Awaiting Parts when stock is short."""
+    job.final_cost = _approved_total(job)
+    shortages = _shortages(job)
+    for part, _, qty in shortages:
+        needed = job.parts.filter(part=part, part_status=m.PART_NEEDED).first()
+        if needed:
+            needed.quantity = max(needed.quantity, qty)
+            needed.save()
+        else:
+            m.JobPart.objects.create(repair_job=job, part=part, quantity=qty, part_status=m.PART_NEEDED)
+    if shortages:
+        set_status(job, m.AWAITING_PARTS, user, f"{note}; parts requested: " +
+                   ", ".join(f"{p} x{q}" for p, _, q in shortages))
+    else:
+        set_status(job, m.IN_REPAIR, user, note)
 
 
 @transaction.atomic
 def record_decision(job, user, approved, note=""):
-    """Front Desk records the customer's approval or decline (FR05, UC-03)."""
+    """Front Desk records the customer's approval or decline (FR05, UC-03). Declining an additional
+    repair leaves the repair they already approved to continue."""
     if job.status != m.AWAITING_APPROVAL:
         raise RuleError("This job is not waiting for the customer's decision.")
     quote = job.quotes.filter(decision=m.Q_PENDING).order_by("-quote_id").first()
     quote.decision = m.Q_APPROVED if approved else m.Q_DECLINED
     quote.decision_at, quote.decision_by = timezone.now(), user
     quote.save()
-    if not approved:
+    if not approved and not job.has_approved_quote:
         job.completed_at = timezone.now()
         set_status(job, m.UNREPAIRED, user, note or "Customer declined the quote")
         return
-    job.final_cost = quote.total_amount
-    shortages = _shortages(job)
-    if shortages:
-        for part, qty in shortages:
-            m.JobPart.objects.create(repair_job=job, part=part, quantity=qty, part_status=m.PART_NEEDED)
-        set_status(job, m.AWAITING_PARTS, user, "Approved; parts requested: " +
-                   ", ".join(f"{p} x{q}" for p, q in shortages))
+    if approved:
+        _resume(job, user, note or "Customer approved the quote")
     else:
-        set_status(job, m.IN_REPAIR, user, note or "Customer approved the quote")
+        _resume(job, user, note or "Customer declined the additional repair; approved repair continues")
 
 
 # 4.0 Record Repair Work (FR06, FR07, UC-04) ------------------------------------
