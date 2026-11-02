@@ -1,0 +1,1 @@
+<ol class="steps" aria-label="Job progress">{% for s in steps %}<li class="{% if s.done %}done{% elif s.current %}current{% endif %}"{% if s.current %} aria-current="step"{% endif %}>{{ s.label }}{% if s.done %}<span class="sr-only"> (done)</span>{% endif %}</li>{% endfor %}</ol>

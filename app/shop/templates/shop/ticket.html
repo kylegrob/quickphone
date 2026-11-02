@@ -1,0 +1,23 @@
+{% extends "shop/base.html" %}
+{% block title %}Ticket {{ job.ticket_number }}{% endblock %}
+{% block content %}
+<div class="page-head no-print">
+  <div><h1>Claim ticket and device tag</h1></div>
+  <div class="actions"><button class="btn primary" onclick="window.print()">Print</button><a class="btn" href="{% url 'job_detail' job.pk %}">Open job</a><a class="btn" href="{% url 'checkin' %}">Next check-in</a></div>
+</div>
+<div class="card" style="max-width:560px">
+  <div class="ticket">
+    <div class="kind"><span>CLAIM TICKET</span><span>{{ job.store.store_name|upper }}</span></div>
+    <div class="num">{{ job.ticket_number }}</div>
+    <div><strong>{{ job.customer }}</strong></div>
+    <div>{{ job.device }} · {{ job.reported_issue }}</div>
+    <div class="muted small">Checked in {{ job.check_in_at|date:"M j, Y g:i A" }}</div>
+    <p class="small">Bring this ticket and a photo ID to pick up. {{ job.store.store_name }}, {{ job.store.address }}, {{ job.store.phone }}</p>
+  </div>
+  <div class="ticket">
+    <div class="kind"><span>DEVICE TAG</span><span>{{ job.store.store_name|upper }}</span></div>
+    <div class="num">{{ job.ticket_number }}</div>
+    <div>{{ job.device }} · {{ job.check_in_at|date:"M j" }}</div>
+  </div>
+</div>
+{% endblock %}

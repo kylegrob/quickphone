@@ -1,0 +1,18 @@
+# Office lock and temp files
+~$*
+*.tmp
+.~lock.*
+
+# OS clutter
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Python
+__pycache__/
+
+# Sprint 4 working system: local environment, database and captured emails
+/.venv/
+/app/dev.sqlite3
+/app/sent_emails/
+/app/staticfiles/

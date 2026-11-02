@@ -1,0 +1,126 @@
+{% extends "shop/base.html" %}
+{% block title %}My jobs{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>My assigned jobs</h1></div>
+</div>
+
+<div class="grid-left{% if picked and job %} job-open{% endif %}">
+<nav aria-label="My jobs" class="joblist">
+  {% for j in mine %}
+    <a class="jobcard {% if job.pk == j.pk %}sel{% endif %}" href="{% url 'bench_job' j.pk %}">
+      <div class="top-line"><span class="mono">{{ j.ticket_number }}</span><span class="pill {{ j.status|slugify }}">{{ j.status }}</span></div>
+      <strong>{{ j.device }}</strong><span class="muted">{{ j.reported_issue|truncatechars:50 }}</span></a>
+  {% empty %}<p class="muted">No jobs assigned to you.</p>{% endfor %}
+  <h2 class="list-h">Open jobs to claim</h2>
+  {% for j in open_jobs %}
+    <a class="jobcard {% if job.pk == j.pk %}sel{% endif %}" href="{% url 'bench_job' j.pk %}">
+      <div class="top-line"><span class="mono">{{ j.ticket_number }}</span><span class="pill">Open</span></div>
+      <strong>{{ j.device }}</strong><span class="muted">{{ j.reported_issue|truncatechars:50 }}</span></a>
+  {% empty %}<p class="muted small">None waiting.</p>{% endfor %}
+</nav>
+
+<div class="stack">
+{% if job and picked %}<a class="back-link" href="{% url 'bench' %}">&larr; All my jobs</a>{% endif %}
+{% if job %}
+  <section class="card">
+    <div class="card-head"><div><h2 style="font-size:28px"><span class="mono">{{ job.ticket_number }}</span> · {{ job.device }}</h2>
+      <p>Checked in {{ job.check_in_at|date:"M j, g:i A" }}</p></div>
+      <span class="pill {{ job.status|slugify }}">{{ job.status }}</span></div>
+    {% include "shop/_steps.html" %}
+    <dl class="kv">
+      <dt>Customer</dt><dd>{{ job.customer }}{% if can_contact %} · {{ job.customer.phone }}{% if job.customer.email %} · {{ job.customer.email }}{% endif %}{% endif %}</dd>
+      <dt>Reported problem</dt><dd>{{ job.reported_issue }}</dd>
+      <dt>Condition</dt><dd>{{ job.intake_condition|default:"Not recorded" }}</dd>
+      {% if job.device_passcode %}<dt>Passcode</dt><dd>{% if passcode %}<span class="mono">{{ passcode }}</span>{% else %}On file; visible once the job is assigned to you{% endif %}</dd>{% endif %}
+      {% if job.diagnosis_notes and job.status != "Diagnosing" %}<dt>Diagnosis</dt><dd>{{ job.diagnosis_notes }}</dd>{% endif %}
+    </dl>
+    {% if not job.assigned_tech_id %}
+      <form method="post" style="margin-top:18px">{% csrf_token %}<input type="hidden" name="action" value="claim"><button class="btn primary">Assign this job to me</button></form>
+    {% elif job.status == "Checked In" %}
+      <form method="post" style="margin-top:18px">{% csrf_token %}<input type="hidden" name="action" value="start"><button class="btn primary">Start diagnosis</button></form>
+    {% endif %}
+  </section>
+
+  {% if job.assigned_tech_id and job.status != "Checked In" or quotes %}
+  {# One work card: the quote and the repair it pays for. Its body follows the job's status. #}
+  <section class="card work">
+  {% if job.status == "Diagnosing" %}
+    <form method="post" id="quote-form">{% csrf_token %}
+      <h2>{% if has_approved %}Diagnosis{% else %}Diagnosis and quote{% endif %}</h2>
+      {% if has_approved %}{% include "shop/_quotes.html" %}{% endif %}
+      <label for="dx">Diagnosis</label>
+      <textarea id="dx" name="diagnosis_notes" maxlength="2000" placeholder="Findings and tests performed" required>{{ job.diagnosis_notes|default:"" }}</textarea>
+      {% if has_approved %}
+        <details class="more"><summary>The device needs more than the approved quote</summary>
+          {% include "shop/_quote_picker.html" with form_id="quote-form" %}
+          <p><button class="btn" name="action" value="quote">Send additional repair for approval</button></p>
+        </details>
+      {% else %}
+        <h3>Parts for the quote</h3>
+        {% include "shop/_quote_picker.html" with form_id="quote-form" %}
+      {% endif %}
+      <div class="actions split">
+        {% if has_approved %}<button class="btn primary" name="action" value="confirm" formnovalidate>Start the approved repair</button>
+        {% else %}<button class="btn primary" name="action" value="quote">Send quote for approval</button>{% endif %}
+        <button class="btn danger" name="action" value="unrepairable" formnovalidate onclick="return confirm('Mark as not repairable? The diagnosis box is used as the reason. No fee is charged.')">Cannot be repaired</button>
+      </div>
+    </form>
+
+  {% elif job.status == "In Repair" %}
+    <h2>Repair</h2>
+    <form method="post" id="complete-form">{% csrf_token %}
+      <div class="scroll-x"><table>
+        <thead><tr><th>Parts for this repair</th><th class="num">On hand</th><th class="num">Using</th></tr></thead>
+        <tbody>{% for r in plan %}
+          <tr><td>{{ r.part }}<div class="part-sub sku">{{ r.part.sku }}</div></td>
+            <td class="num">{% if r.on_hand < r.qty %}<span class="pill out">{{ r.on_hand }}</span>{% else %}{{ r.on_hand }}{% endif %}</td>
+            <td class="num"><input type="number" name="used_{{ r.part.pk }}" value="{{ r.qty }}" min="0" class="w-num" aria-label="Quantity of {{ r.part }} used"></td></tr>
+        {% empty %}<tr><td colspan="3" class="muted">No parts; labor only.</td></tr>{% endfor %}</tbody>
+      </table></div>
+      <label for="rn">Repair notes</label>
+      <textarea id="rn" name="repair_notes" maxlength="2000" placeholder="What was done and tested">{{ job.repair_notes|default:"" }}</textarea>
+      <div class="actions split"><button class="btn primary" name="action" value="complete">Mark ready for pickup</button></div>
+    </form>
+    <details class="more"><summary>Add parts or work</summary>
+      <form method="post" id="quote-form">{% csrf_token %}
+        <input type="hidden" name="action" value="add_work">
+        {% include "shop/_quote_picker.html" with form_id="quote-form" %}
+        <fieldset class="choice"><legend class="label">Charge the customer?</legend>
+          <label><input type="radio" name="charge" value="yes" checked> Yes: send for customer approval</label>
+          <label><input type="radio" name="charge" value="no"> No charge</label>
+        </fieldset>
+        <label for="dx">Reason</label>
+        <textarea id="dx" name="diagnosis_notes" maxlength="2000" ></textarea>
+        <p><button class="btn">Add</button></p>
+      </form>
+    </details>
+    <details class="more"><summary>Quote{% if job.final_cost is not None %}: ${{ job.final_cost|floatformat:2 }} approved{% endif %}</summary>{% include "shop/_quotes.html" %}</details>
+
+  {% else %}
+    <h2>{% if job.status == "Awaiting Approval" or job.status == "Checked In" %}Quote{% elif job.status == "Awaiting Parts" %}Waiting for parts{% else %}Repair summary{% endif %}</h2>
+    {% if job.status == "Awaiting Parts" %}
+      {% for n in needed %}<p>{{ n.part }} × {{ n.quantity }} <span class="pill awaiting-parts">Needed</span>{% if n.purchase_order %} on {{ n.purchase_order.number }} ({{ n.purchase_order.po_status }}){% endif %}</p>{% endfor %}
+    {% endif %}
+    {% if used %}<h3>Parts used</h3>{% for u in used %}<p>{{ u.part }} × {{ u.quantity }} <span class="muted small">{{ u.recorded_at|date:"M j, g:i A" }}</span></p>{% endfor %}{% endif %}
+    {% if job.repair_notes and job.status != "Awaiting Parts" %}<h3>Repair notes</h3><p>{{ job.repair_notes }}</p>{% endif %}
+    {% if job.status == "Awaiting Approval" or job.status == "Checked In" %}{% include "shop/_quotes.html" %}
+    {% elif quotes %}<details class="more"><summary>Quote{% if job.final_cost is not None %}: ${{ job.final_cost|floatformat:2 }} approved{% endif %}</summary>{% include "shop/_quotes.html" %}</details>{% endif %}
+
+    {% if job.status == "Ready for Pickup" or job.status == "Returned Unrepaired" %}
+    <h3>Pickup notification</h3>
+    {% if job.email_sent_at %}<p><span class="pill {{ job.email_status|slugify }}">{{ job.email_status }}</span> {{ job.email_sent_at|date:"M j, g:i A" }} by {{ job.email_sent_by.first_name }}</p>{% endif %}
+    {% if has_email %}<form method="post" action="{% url 'job_notify' job.pk %}">{% csrf_token %}<button class="btn">{% if job.email_sent_at %}Send again{% else %}Send pickup notification{% endif %}</button></form>
+    {% else %}<p class="muted">No email on file.</p>{% endif %}
+    {% endif %}
+  {% endif %}
+  </section>
+  {% endif %}
+
+  {% include "shop/_history.html" with collapsed=True %}
+{% else %}
+  <section class="card"><h2>No job selected</h2></section>
+{% endif %}
+</div>
+</div>
+{% endblock %}

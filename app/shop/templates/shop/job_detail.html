@@ -1,0 +1,98 @@
+{% extends "shop/base.html" %}
+{% block title %}{{ job.ticket_number }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1><span class="mono">{{ job.ticket_number }}</span> · {{ job.device }}</h1>
+  <p>{{ job.store.store_name }} · checked in {{ job.check_in_at|date:"M j, g:i A" }}</p></div>
+  <div class="actions"><span class="pill {{ job.status|slugify }}" style="font-size:16px">{{ job.status }}</span>
+  <a class="btn" href="{% url 'job_ticket' job.pk %}">Reprint ticket and tag</a></div>
+</div>
+
+<div class="grid">
+<div class="stack">
+  <section class="card">
+    {% include "shop/_steps.html" %}
+    <dl class="kv">
+      <dt>Customer</dt><dd><strong>{{ job.customer }}</strong>{% if can_contact %} · {{ job.customer.phone }} · {{ job.customer.email|default:"no email on file" }}{% endif %}</dd>
+      <dt>Device</dt><dd>{{ job.device.device_type|default:"" }} {{ job.device }}{% if job.device.serial_or_imei %} · <span class="mono">{{ job.device.serial_or_imei }}</span>{% endif %}</dd>
+      <dt>Reported problem</dt><dd>{{ job.reported_issue }}</dd>
+      <dt>Condition</dt><dd>{{ job.intake_condition|default:"Not recorded" }}</dd>
+      <dt>Passcode</dt><dd>{% if not job.device_passcode %}None given{% elif passcode %}<span class="mono">{{ passcode }}</span>{% else %}On file (assigned technician, Managers and Owner only){% endif %}</dd>
+      <dt>Diagnosis</dt><dd>{{ job.diagnosis_notes|default:"Not yet" }}</dd>
+      {% if job.repair_notes %}<dt>Repair notes</dt><dd>{{ job.repair_notes }}</dd>{% endif %}
+      <dt>Technician</dt><dd>
+        {% if user.role == "Owner" or user.role == "Manager" %}{% if job.status != "Closed" %}
+          <form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="action" value="assign">
+            <select name="technician_id" aria-label="Technician" style="width:auto"><option value="">Open (unassigned)</option>
+            {% for t in technicians %}<option value="{{ t.pk }}" {% if t.pk == job.assigned_tech_id %}selected{% endif %}>{{ t.first_name }} {{ t.last_name }}{% if t.role != "Technician" %} ({{ t.role }}){% endif %}</option>{% endfor %}</select>
+            <button class="btn small">Assign</button></form>
+        {% else %}{{ job.assigned_tech|default:"Open" }}{% endif %}
+        {% else %}{{ job.assigned_tech|default:"Open, waiting for a technician to claim it" }}{% endif %}</dd>
+      {% if job.appointment %}<dt>Appointment</dt><dd>{{ job.appointment.scheduled_at|date:"M j, g:i A" }}</dd>{% endif %}
+      {% if past_jobs %}<dt>Past repairs</dt><dd>{% for p in past_jobs %}<a class="mono" href="{% url 'job_detail' p.pk %}">{{ p.ticket_number }}</a> {{ p.reported_issue|truncatechars:40 }} ({{ p.status }}){% if not forloop.last %}<br>{% endif %}{% endfor %}</dd>{% endif %}
+    </dl>
+  </section>
+
+  <section class="card">
+    <h2>Quote</h2>
+    {% include "shop/_quotes.html" %}
+    {% if job.status == "Awaiting Approval" %}
+      <div class="actions" style="margin-top:14px">
+        <form method="post" class="inline">{% csrf_token %}<input type="hidden" name="action" value="approve"><button class="btn primary">Customer approved</button></form>
+        <form method="post" class="inline" onsubmit="return confirm('Record that the customer declined? The device goes back unrepaired.')">{% csrf_token %}<input type="hidden" name="action" value="decline"><button class="btn danger">Customer declined</button></form>
+      </div>
+    {% endif %}
+  </section>
+
+  {% include "shop/_history.html" %}
+</div>
+
+<aside class="stack">
+  {% if job.status == "Ready for Pickup" or job.status == "Returned Unrepaired" or job.status == "Closed" %}
+  <section class="card">
+    <h2>Pickup notification</h2>
+    {% if job.email_sent_at %}
+      <p><span class="pill {{ job.email_status|slugify }}">{{ job.email_status }}</span> {{ job.email_sent_at|date:"M j, g:i A" }} by {{ job.email_sent_by.first_name }}</p>
+    {% else %}<p class="muted">Not sent yet.</p>{% endif %}
+    {% if job.status != "Closed" and can_email %}
+      {% if job.customer.email %}
+        <form method="post" action="{% url 'job_notify' job.pk %}">{% csrf_token %}<button class="btn block">{% if job.email_sent_at %}Send again{% else %}Send pickup notification{% endif %}</button></form>
+      {% else %}<p class="muted">No email on file.</p>{% endif %}
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if job.status == "Ready for Pickup" or job.status == "Returned Unrepaired" %}
+  <section class="card summary">
+    <h2>Payment and release</h2>
+    <dl class="kv" style="margin:12px 0">
+      {% if job.status == "Ready for Pickup" %}<dt>Repair total</dt><dd>${{ job.final_cost|floatformat:2 }}</dd>{% else %}<dt>Repair total</dt><dd>Not repaired</dd>{% endif %}
+      <dt>Paid</dt><dd>${{ job.amount_paid|floatformat:2 }}</dd>
+      {% if job.status == "Ready for Pickup" %}<dt><strong>Still due</strong></dt><dd><strong>${{ due|floatformat:2 }}</strong></dd>{% endif %}
+    </dl>
+    {% for p in job.payments.all %}<p class="small muted">{{ p.paid_at|date:"M j, g:i A" }}: ${{ p.amount }} {{ p.method }} <span class="pill paid">{{ p.payment_status }}</span></p>{% endfor %}
+    {% if job.status == "Ready for Pickup" and due > 0 or job.status == "Returned Unrepaired" %}
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="payment">
+      <h3>{% if job.status == "Returned Unrepaired" %}Fee (optional){% else %}Record payment{% endif %}</h3>
+      <div class="row">
+        <div><label for="amount">Amount ($)</label><input type="number" id="amount" name="amount" step="0.01" min="0.01" value="{% if job.status == 'Ready for Pickup' %}{{ due|floatformat:2 }}{% endif %}"></div>
+        <div><label for="method">Method</label><select id="method" name="method"><option>Card</option><option>Cash</option></select></div>
+      </div>
+      <p><button class="btn block">Record payment</button></p>
+    </form>
+    {% endif %}
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="release">
+      <h3>Release device</h3>
+      <label style="font-weight:400;display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="id_verified" style="width:22px;height:22px"> Photo ID checked</label>
+      <button class="btn primary block" {% if job.status == "Ready for Pickup" and due > 0 %}disabled title="Record payment first"{% endif %}>Release and close job</button>
+      {% if job.status == "Ready for Pickup" and due > 0 %}<p class="hint">Record payment first.</p>{% endif %}
+    </form>
+  </section>
+  {% endif %}
+
+  {% if job.status == "Closed" %}
+  <section class="card"><h2>Released</h2><p>{{ job.picked_up_at|date:"M j, g:i A" }} · photo ID checked · paid ${{ job.amount_paid|floatformat:2 }}</p></section>
+  {% endif %}
+</aside>
+</div>
+{% endblock %}

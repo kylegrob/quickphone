@@ -1,0 +1,79 @@
+{% extends "shop/base.html" %}
+{% block title %}{{ po.number }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1><span class="mono">{{ po.number }}</span> · {{ po.supplier }}</h1>
+  <p>{{ po.store }} · created by {{ po.created_by.first_name }} {{ po.created_at|date:"M j, g:i A" }}{% if po.approved_by %} · approved by {{ po.approved_by.first_name }} {{ po.approved_at|date:"M j, g:i A" }}{% endif %}{% if po.placed_at %} · ordered {{ po.placed_at|date:"M j" }}{% endif %}</p></div>
+  <div class="actions"><span class="pill {{ po.po_status|slugify }}" style="font-size:16px">{{ po.po_status }}</span><a class="btn" href="{% url 'po_list' %}">All orders</a></div>
+</div>
+{% if po.po_status == "Draft" and po.rejection_reason %}<div class="alert-box">Returned to Draft: {{ po.rejection_reason }}</div>{% endif %}
+
+<div class="grid">
+<div class="stack">
+  {% if po.po_status == "Draft" %}
+  <form method="post" class="card">{% csrf_token %}<input type="hidden" name="action" value="save_lines">
+    <h2>Order lines</h2>
+    <div class="scroll-x"><table><thead><tr><th>Part</th><th class="num">Unit cost</th><th class="num">Qty</th><th class="num">Line</th><th>Remove</th></tr></thead>
+    <tbody>{% for l in lines %}<tr><td>{{ l.part }}<div class="part-sub sku">{{ l.part.sku }}</div></td><td class="num">${{ l.unit_cost }}</td>
+      <td class="num"><input type="number" name="qty_{{ l.pk }}" value="{{ l.quantity_ordered }}" min="1" class="w-num" aria-label="Quantity"></td>
+      <td class="num">${{ l.line_total|floatformat:2 }}</td>
+      <td><input type="checkbox" name="remove_{{ l.pk }}" aria-label="Remove {{ l.part }}" style="width:22px;height:22px"></td></tr>
+    {% empty %}<tr><td colspan="5" class="muted">No lines yet.</td></tr>{% endfor %}</tbody></table></div>
+    <div class="inline-form" style="margin-top:14px">
+      <label for="add" style="margin:0">Add a part from {{ po.supplier }}</label>
+      <select id="add" name="add_part_id" style="width:auto;flex:1"><option value="">None</option>{% for p in supplier_parts %}<option value="{{ p.pk }}">{{ p }} ({{ p.sku }})</option>{% endfor %}</select>
+      <input type="number" name="add_quantity" value="1" min="1" class="w-num" aria-label="Quantity to add">
+    </div>
+    <p class="actions"><button class="btn">Save lines</button></p>
+  </form>
+  {% else %}
+  <section class="card"><h2>Order lines</h2>
+    {% if po.po_status == "Approved" or po.po_status == "Ordered" %}
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="receive">
+    {% endif %}
+    <div class="scroll-x"><table><thead><tr><th>Part</th><th class="num">Unit cost</th><th class="num">Ordered</th><th class="num">Received</th>{% if po.po_status == "Approved" or po.po_status == "Ordered" %}<th class="num">Arriving now</th>{% endif %}</tr></thead>
+    <tbody>{% for l in lines %}<tr><td>{{ l.part }}<div class="part-sub sku">{{ l.part.sku }}</div></td><td class="num">${{ l.unit_cost }}</td><td class="num">{{ l.quantity_ordered }}</td><td class="num">{{ l.quantity_received }}</td>
+      {% if po.po_status == "Approved" or po.po_status == "Ordered" %}<td class="num">{% if l.outstanding %}<input type="number" name="recv_{{ l.pk }}" value="{{ l.outstanding }}" min="0" max="{{ l.outstanding }}" class="w-num" aria-label="Quantity arriving">{% else %}Done{% endif %}</td>{% endif %}</tr>{% endfor %}</tbody></table></div>
+    {% if po.po_status == "Approved" or po.po_status == "Ordered" %}
+      <p><button class="btn primary">Receive delivery</button></p></form>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section class="card"><h2>Jobs waiting on these parts</h2>
+    {% if po.po_status == "Draft" %}
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="submit">
+      {% for w in waiting %}<label style="font-weight:400;display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="link_job_part" value="{{ w.pk }}" checked style="width:22px;height:22px">
+        <span class="mono">{{ w.repair_job.ticket_number }}</span> {{ w.repair_job.device }} needs {{ w.part }} × {{ w.quantity }}</label>
+      {% empty %}<p class="muted">None.</p>{% endfor %}
+      <div class="totals" style="margin:16px 0"><span class="grand">Order total</span><span class="grand">${{ po.total|floatformat:2 }}</span></div>
+      <div class="actions"><button class="btn primary">Submit for a Manager's approval</button>
+        <button class="btn danger" name="action" value="delete" formnovalidate onclick="return confirm('Delete this draft?')">Delete draft</button></div>
+      </form>
+    {% else %}
+      {% for w in linked %}<p><span class="mono">{{ w.repair_job.ticket_number }}</span> needs {{ w.part }} × {{ w.quantity }} <span class="pill {{ w.repair_job.status|slugify }}">{{ w.repair_job.status }}</span></p>
+      {% empty %}<p class="muted">No jobs linked.</p>{% endfor %}
+    {% endif %}
+  </section>
+</div>
+
+<aside class="stack">
+  <section class="card summary"><h2>Order</h2>
+    <dl class="kv" style="margin-top:12px"><dt>Supplier</dt><dd>{{ po.supplier }}</dd>
+      <dt>Contact</dt><dd>{{ po.supplier.contact_name|default:"" }} {{ po.supplier.phone|default:"" }}</dd>
+      <dt>Lines</dt><dd>{{ lines|length }}</dd><dt><strong>Total</strong></dt><dd><strong>${{ po.total|floatformat:2 }}</strong></dd></dl>
+  </section>
+  {% if po.po_status == "Pending Approval" %}
+  <section class="card"><h2>Approval</h2>
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="approve"><button class="btn primary block">Approve order</button></form>
+    <form method="post" style="margin-top:16px">{% csrf_token %}<input type="hidden" name="action" value="reject">
+      <label for="reason">Reason for returning it</label><input type="text" id="reason" name="reason" maxlength="300" required>
+      <p><button class="btn danger block">Return to Draft</button></p></form>
+  </section>
+  {% elif po.po_status == "Approved" %}
+  <section class="card"><h2>Place the order</h2>
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="ordered"><button class="btn primary block">Mark as ordered</button></form></section>
+  {% endif %}
+</aside>
+</div>
+{% endblock %}

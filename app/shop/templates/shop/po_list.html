@@ -1,0 +1,22 @@
+{% extends "shop/base.html" %}
+{% block title %}Purchase orders{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Purchase orders</h1><p>{{ active_store.store_name }}</p></div>
+  <a class="btn" href="{% url 'inventory' %}">Back to inventory</a>
+</div>
+<div class="chips" style="margin-bottom:20px">
+  <a class="chip {% if not status %}on{% endif %}" href="?">All</a>
+  {% for s, n in counts.items %}<a class="chip {% if status == s %}on{% endif %}" href="?status={{ s|urlencode }}">{{ s }} ({{ n }})</a>{% endfor %}
+</div>
+<div class="card table-card">
+<table>
+  <thead><tr><th>Order</th><th>Supplier</th><th>Created by</th><th>Approved by</th><th class="num">Total</th><th>Status</th></tr></thead>
+  <tbody>{% for po in orders %}
+    <tr><td><a class="mono" href="{% url 'po_detail' po.pk %}">{{ po.number }}</a><div class="part-sub">{{ po.created_at|date:"M j" }}</div></td>
+      <td>{{ po.supplier }}</td><td>{{ po.created_by.first_name }}</td><td>{{ po.approved_by.first_name|default:"" }}</td>
+      <td class="num">${{ po.total|floatformat:2 }}</td><td><span class="pill {{ po.po_status|slugify }}">{{ po.po_status }}</span></td></tr>
+  {% empty %}<tr><td colspan="6" class="muted">No orders.</td></tr>{% endfor %}</tbody>
+</table>
+</div>
+{% endblock %}

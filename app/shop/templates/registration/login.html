@@ -1,0 +1,17 @@
+{% extends "shop/base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<div class="card login">
+  <h1>Sign in</h1>
+  <p class="muted">Quick Phone Repair Management</p>
+  {% if form.errors %}<div class="alert-box">Email or password is not correct, or the account is inactive.</div>{% endif %}
+  <form method="post">{% csrf_token %}
+    <label for="id_username">Email</label>
+    <input type="email" name="username" id="id_username" autocomplete="username" required autofocus value="{{ form.username.value|default:'' }}">
+    <label for="id_password">Password</label>
+    <input type="password" name="password" id="id_password" autocomplete="current-password" required>
+    <input type="hidden" name="next" value="{{ next }}">
+    <p><button class="btn primary block" type="submit">Sign in</button></p>
+  </form>
+</div>
+{% endblock %}

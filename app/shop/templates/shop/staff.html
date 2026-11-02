@@ -1,0 +1,20 @@
+{% extends "shop/base.html" %}
+{% block title %}Staff and suppliers{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Staff, stores and suppliers</h1></div>
+<div class="actions"><a class="btn" href="{% url 'supplier_new' %}">Add supplier</a><a class="btn primary" href="{% url 'staff_new' %}">Add staff account</a></div></div>
+<div class="card table-card" style="margin-bottom:24px">
+<table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Store</th><th>Status</th></tr></thead>
+<tbody>{% for e in staff %}<tr><td><a href="{% url 'staff_edit' e.pk %}">{{ e }}</a></td><td>{{ e.email }}</td><td>{{ e.role }}</td><td>{{ e.store }}</td>
+  <td>{% if e.active_flag %}<span class="pill ok">Active</span>{% else %}<span class="pill">Inactive</span>{% endif %}</td></tr>{% endfor %}</tbody></table>
+</div>
+<div class="grid" style="grid-template-columns: 1fr 1fr">
+<section class="card table-card"><h2 style="padding-top:12px">Suppliers</h2>
+<table><thead><tr><th>Supplier</th><th>Contact</th><th>Status</th></tr></thead>
+<tbody>{% for s in suppliers %}<tr><td><a href="{% url 'supplier_edit' s.pk %}">{{ s }}</a></td><td>{{ s.contact_name|default:"" }} {{ s.phone|default:"" }}</td>
+  <td>{% if s.active_flag %}<span class="pill ok">Active</span>{% else %}<span class="pill">Inactive</span>{% endif %}</td></tr>{% endfor %}</tbody></table></section>
+<section class="card table-card"><h2 style="padding-top:12px">Stores</h2>
+<table><thead><tr><th>Store</th><th>Email account for notifications</th></tr></thead>
+<tbody>{% for s in stores %}<tr><td><a href="{% url 'store_edit' s.pk %}">{{ s }}</a><div class="part-sub">{{ s.address }}</div></td><td>{{ s.email_address }}</td></tr>{% endfor %}</tbody></table></section>
+</div>
+{% endblock %}

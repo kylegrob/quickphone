@@ -1,0 +1,37 @@
+{% extends "shop/base.html" %}
+{% block title %}Repair jobs{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Repair jobs</h1><p>{{ active_store.store_name }}</p></div>
+  <a class="btn primary" href="{% url 'checkin' %}">Check in a device</a>
+</div>
+<div class="tiles status-tiles">
+  {% for s, n in counts.items %}<a class="tile" href="?status={{ s|urlencode }}"><span class="muted">{{ s }}</span><div class="n">{{ n }}</div></a>{% endfor %}
+</div>
+<form method="get" class="card" style="margin-bottom:22px">
+  <div class="row" style="align-items:end">
+    <div style="grid-column: span 2"><label for="q">Ticket number or phone</label><input type="search" id="q" name="q" value="{{ q }}" placeholder="QP-1049 or (919) 555-0142"></div>
+    <div><label for="status">Status</label><select id="status" name="status">
+      <option value="open" {% if status == "open" %}selected{% endif %}>All open jobs</option>
+      {% for s in statuses %}<option {% if status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      <option value="all" {% if status == "all" %}selected{% endif %}>All jobs</option>
+    </select></div>
+    <div><button class="btn dark block" type="submit">Search</button></div>
+  </div>
+</form>
+<div class="card table-card">
+<table>
+  <thead><tr><th>Ticket</th><th>Customer</th><th>Device and problem</th><th>Technician</th><th>Checked in</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for j in jobs %}
+    <tr><td><a class="mono" href="{% url 'job_detail' j.pk %}">{{ j.ticket_number }}</a></td>
+      <td>{{ j.device.customer }}<div class="part-sub">{{ j.device.customer.phone }}</div></td>
+      <td>{{ j.device }}<div class="part-sub">{{ j.reported_issue|truncatechars:60 }}</div></td>
+      <td>{{ j.assigned_tech.first_name|default:"Open" }}</td>
+      <td>{{ j.check_in_at|date:"M j, g:i A" }}</td>
+      <td><span class="pill {{ j.status|slugify }}">{{ j.status }}</span></td></tr>
+  {% empty %}<tr><td colspan="6" class="muted">No jobs match.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

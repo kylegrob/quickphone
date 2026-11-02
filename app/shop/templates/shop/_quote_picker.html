@@ -1,0 +1,40 @@
+{# Parts picker with a live quote total. Needs: parts, form_id. The server recalculates on save. #}
+<input type="search" class="part-filter" aria-label="Filter parts" placeholder="Filter parts by name, model or SKU">
+<div class="scroll-x"><table style="margin-top:8px">
+  <thead><tr><th>Use</th><th>Part</th><th class="num">On hand</th><th class="num">Qty</th><th class="num">Part</th><th class="num">Labor</th></tr></thead>
+  <tbody>{% for p in parts %}
+    <tr>
+      <td><input type="checkbox" name="use_{{ p.pk }}" id="{{ form_id }}-use-{{ p.pk }}" data-cost="{{ p.standard_cost }}" data-labor="{{ p.labor_cost }}" style="width:24px;height:24px" {% if p.checked %}checked{% endif %}></td>
+      <td><label for="{{ form_id }}-use-{{ p.pk }}" style="margin:0;font-weight:400">{{ p }}<div class="part-sub"><span class="sku">{{ p.sku }}</span>{% if p.grade %} · {{ p.grade }}{% endif %}</div></label></td>
+      <td class="num">{% if p.on_hand %}{{ p.on_hand }}{% else %}<span class="pill out">Out</span>{% endif %}</td>
+      <td class="num"><input type="number" name="qty_{{ p.pk }}" value="{{ p.qty }}" min="1" class="w-num" aria-label="Quantity of {{ p }}"></td>
+      <td class="num">${{ p.standard_cost }}</td>
+      <td class="num">${{ p.labor_cost }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+<div class="totals" style="margin-top:14px" aria-live="polite" aria-atomic="true"><span>Parts</span><span class="t-parts">$0.00</span><span>Labor</span><span class="t-labor">$0.00</span>
+  <span class="grand">Quote total</span><span class="grand t-total">$0.00</span></div>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const form = document.getElementById('{{ form_id }}');
+  const money = n => '$' + n.toFixed(2);
+  function total() {
+    let parts = 0, labor = 0;
+    form.querySelectorAll('input[type=checkbox][data-cost]').forEach(c => {
+      if (!c.checked) return;
+      const q = parseInt(form.querySelector('[name=' + c.name.replace('use_', 'qty_') + ']').value) || 0;
+      parts += parseFloat(c.dataset.cost) * q;
+      labor += parseFloat(c.dataset.labor) * q;
+    });
+    form.querySelector('.t-parts').textContent = money(parts);
+    form.querySelector('.t-labor').textContent = money(labor);
+    form.querySelector('.t-total').textContent = money(parts + labor);
+  }
+  form.addEventListener('input', total);
+  total();
+  form.querySelector('.part-filter').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    form.querySelectorAll('tbody tr').forEach(r => { r.hidden = q && !r.textContent.toLowerCase().includes(q); });
+  });
+});
+</script>
