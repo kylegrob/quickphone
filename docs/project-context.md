@@ -47,6 +47,7 @@ Applied (Oct 23) to the physical DFD and ERD PDFs, the DFD and ERD Models docume
 Made while building the working system in `app/` (Prototype A, Curation Memo Oct 24). Each answers an open question for the build; those marked *owner* still need the owner's confirmation. The documents named in "Documents to update" below do not yet reflect them.
 
 - Technicians **may** send the pickup notification (owner answer #1), without seeing the customer's address. Supersedes confirmation #6 and NFR05.
+- Technicians **see customer phone and email** on every screen other roles do, because they check customers in (Kyle, Nov 2). Supersedes the rest of confirmation #6 and the Sprint 4 draft NFR04 (*owner*).
 - The parts on a quote are stored in a new **QUOTE_LINE** table (D3: quote_id, part_id, quantity, unit_cost); ERD goes to 17 entities. JOB_PART "Needed" keeps its meaning of a part request.
 - A declined quote sets Returned Unrepaired; Front Desk **may** record a fee, but none is required for release (*owner*).
 - The passcode is visible to the assigned technician, Managers and the Owner (*owner*: who counts as "authorized staff").

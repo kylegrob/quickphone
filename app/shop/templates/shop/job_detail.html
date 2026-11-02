@@ -13,7 +13,7 @@
   <section class="card">
     {% include "shop/_steps.html" %}
     <dl class="kv">
-      <dt>Customer</dt><dd><strong>{{ job.customer }}</strong>{% if can_contact %} · {{ job.customer.phone }} · {{ job.customer.email|default:"no email on file" }}{% else %} <span class="muted">(contact details hidden for the Technician role)</span>{% endif %}</dd>
+      <dt>Customer</dt><dd><strong>{{ job.customer }}</strong>{% if can_contact %} · {{ job.customer.phone }} · {{ job.customer.email|default:"no email on file" }}{% endif %}</dd>
       <dt>Device</dt><dd>{{ job.device.device_type|default:"" }} {{ job.device }}{% if job.device.serial_or_imei %} · <span class="mono">{{ job.device.serial_or_imei }}</span>{% endif %}</dd>
       <dt>Reported problem</dt><dd>{{ job.reported_issue }}</dd>
       <dt>Condition</dt><dd>{{ job.intake_condition|default:"Not recorded" }}</dd>

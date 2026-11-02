@@ -89,8 +89,10 @@ def can_see_passcode(user, job):
 
 
 def can_see_contact(user):
-    """Technicians never see customer phone or email (NFR04, client confirmation #6)."""
-    return user.role != TECHNICIAN
+    """Every role sees customer phone and email, Technicians included, since they check customers
+    in and call them about repairs (Kyle Robertson, 2026-11-02). Reverses client confirmation #6;
+    NFR04 still to confirm with the owner."""
+    return user.is_authenticated
 
 
 class ActiveStoreMiddleware:
@@ -141,6 +143,7 @@ def nav_context(request):
         + ([(reverse("access"), "Access", section == "access")] if user.role == OWNER else []),
         "active_store": request.store,
         "open_screens": {key: can_open(request, key) for key in SCREENS},
+        "can_contact": can_see_contact(user),
     }
     if user.role == OWNER:
         ctx["all_stores"] = Store.objects.all()

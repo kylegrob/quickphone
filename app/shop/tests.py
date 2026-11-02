@@ -353,7 +353,7 @@ class ScreenAccessTests(Base):
         po.refresh_from_db()
         self.assertEqual(po.po_status, m.PO_PENDING)  # still only a Manager or the Owner approves
         page = self.client.get(reverse("job_detail", args=[self.job("Cracked screen").pk])).content.decode()
-        self.assertNotIn("555-0142", page)  # contact stays hidden from the Technician role
+        self.assertIn("555-0142", page)  # Technicians see customer contact (Kyle, 2026-11-02)
 
     def test_the_matrix_page_lists_every_screen_and_role(self):
         self.login(self.owner)
@@ -585,11 +585,15 @@ class PurchasingTests(Base):
 
 
 class AccessTests(Base):
-    def test_nfr04_technician_never_sees_customer_contact(self):
+    def test_nfr04_technician_sees_customer_contact(self):
+        from .permissions import can_see_contact
+        for user in (self.sam, self.desk, self.manager, self.owner):
+            self.assertTrue(can_see_contact(user), user.role)
         self.login(self.sam)
-        page = self.client.get(reverse("bench_job", args=[self.job("Cracked screen").pk])).content.decode()
-        self.assertNotIn("555-0142", page)
-        self.assertNotIn("m.santos@example.com", page)
+        cust = m.Customer.objects.get(phone__contains="0142")
+        page = self.client.get(reverse("checkin"), {"customer": cust.pk}).content.decode()
+        self.assertIn("555-0142", page)
+        self.assertIn("m.santos@example.com", page)
         self.assertEqual(self.client.get(reverse("jobs")).status_code, 403)  # payment and release stay with the desk
 
     def test_fr14_manager_cannot_assign_owner_role(self):
