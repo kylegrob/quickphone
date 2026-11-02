@@ -155,7 +155,6 @@ class Command(BaseCommand):
         s.submit_quote(j, jordan, "Lint cleared; port pins damaged. Replace charging port.", "35.00",
                        [(parts["QP-CHG-USBC"], 1)])
         s.record_decision(j, desk, True)
-        s.record_part_used(j, jordan, parts["QP-CHG-USBC"], 1)
         s.complete_repair(j, jordan, "Port replaced; charges at 18 W; tested with two cables.")
         j = job(s1, device(tom, "Laptop", "Lenovo", "IdeaPad 3"), "Keyboard not responding", jordan)
         s.start_diagnosis(j, jordan)

@@ -1,9 +1,11 @@
-"""Technician screen: assigned queue, diagnosis and quote, repair work (Prototype A, slide 3).
+"""Technician screen: assigned queue and one work card per job (Prototype A, slide 3).
+
+The work card holds the quote and the repair together. Parts are not recorded one by one: marking the
+job ready takes the planned parts off the store's stock (Kyle, 2026-11-02).
 
 Technicians see the customer's name only; phone and email are never sent to this
 screen (NFR04). Each technician sees only their own jobs plus open jobs to claim (FR04).
 """
-from django.contrib import messages
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -21,6 +23,15 @@ def _visible(user, store):
     ).select_related("device")
 
 
+def _used_lines(post):
+    """(Part, quantity) from the completion form's used_<part id> boxes; None if the form had none."""
+    keys = [k for k in post if k.startswith("used_")]
+    if not keys:
+        return None
+    parts = m.Part.objects.in_bulk([to_int(k[5:]) for k in keys])
+    return [(parts[to_int(k[5:])], to_int(post.get(k))) for k in keys if to_int(k[5:]) in parts]
+
+
 @screen_required("bench")
 def bench(request, pk=None):
     user, store = request.user, request.store
@@ -30,8 +41,6 @@ def bench(request, pk=None):
 
     if request.method == "POST" and job:
         action = request.POST.get("action")
-        part = m.Part.objects.filter(pk=request.POST.get("part_id") or 0, active_flag=True).first()
-        qty = to_int(request.POST.get("quantity"), 1)
         if action == "claim":
             attempt(request, services.claim, job, user, success=f"{job.ticket_number} is now in your queue.")
         elif action == "start":
@@ -48,33 +57,28 @@ def bench(request, pk=None):
         elif action == "unrepairable":
             attempt(request, services.mark_unrepairable, job, user, request.POST.get("diagnosis_notes", ""),
                     success="Marked as not repairable. No diagnostic fee is charged.")
-        elif action == "use_part" and part:
-            attempt(request, services.record_part_used, job, user, part, qty,
-                    success=f"Recorded {qty} x {part}; store stock reduced.")
-        elif action == "request_part" and part:
-            attempt(request, services.request_part, job, user, part, qty,
-                    success="Part requested. The job waits in Awaiting Parts.")
+        elif action == "add_work" and request.POST.get("charge") == "yes":
+            attempt(request, services.submit_quote, job, user, request.POST.get("diagnosis_notes", ""),
+                    None, quote_lines(request.POST),
+                    success="Additional repair sent. Front Desk records the customer's decision.")
+        elif action == "add_work":
+            attempt(request, services.add_parts, job, user, quote_lines(request.POST),
+                    success=lambda waits: "Parts added; the job waits in Awaiting Parts for the ones out of stock."
+                    if waits else "Parts added; they come off stock when you mark the job ready.")
         elif action == "complete":
             attempt(request, services.complete_repair, job, user, request.POST.get("repair_notes", ""),
-                    success="Ready for pickup.")
-        elif not part and action in ("use_part", "request_part"):
-            messages.error(request, "Pick a part.")
+                    _used_lines(request.POST), success="Ready for pickup. Parts taken off stock.")
         return redirect("bench_job", job.pk)
 
     ctx = {"mine": mine, "open_jobs": open_jobs, "job": job}
     if job:
         quotes = list(job.quotes.order_by("quote_id").prefetch_related("lines__part"))
-        quoted = {}
-        for q in quotes:
-            if q.decision == m.Q_APPROVED:
-                for line in q.lines.all():
-                    quoted[line.part_id] = quoted.get(line.part_id, 0) + line.quantity
         parts = picker_parts(store, job.device.model)
-        for p in parts:
-            p.quoted = quoted.get(p.pk, 0)
+        on_hand = {p.pk: p.on_hand for p in parts}
+        plan = [{"part": p, "qty": q, "on_hand": on_hand.get(p.pk, 0)} for p, q in services.planned_parts(job)]
         ctx.update({
             "steps": _steps(job), "quote": quotes[-1] if quotes else None, "quotes": quotes,
-            "has_approved": any(q.decision == m.Q_APPROVED for q in quotes), "parts": parts,
+            "has_approved": any(q.decision == m.Q_APPROVED for q in quotes), "parts": parts, "plan": plan,
             "used": job.parts.filter(part_status=m.PART_USED).select_related("part"),
             "needed": job.parts.filter(part_status=m.PART_NEEDED).select_related("part", "purchase_order"),
             "history": job.history.select_related("changed_by"),
