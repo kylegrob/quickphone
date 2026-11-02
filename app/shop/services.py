@@ -342,22 +342,30 @@ def planned_parts(job):
 
 
 @transaction.atomic
-def request_part(job, tech, part, quantity):
-    """Adds a part the quote did not cover. In stock, it is taken when the job is marked ready; out of
-    stock, the job waits in Awaiting Parts until a Manager receives it (owner, Oct 23 #3)."""
+def add_parts(job, tech, lines):
+    """Adds parts the quote did not cover, at no charge to the customer; a charged extra goes through
+    submit_quote instead. Parts in stock are taken when the job is marked ready; if any is short, the
+    job waits in Awaiting Parts until a Manager receives it (owner, Oct 23 #3). Returns True if it waits."""
     _require_own_job(job, tech)
     if job.status != m.IN_REPAIR:
-        raise RuleError("Parts are requested while the job is In Repair.")
-    if quantity <= 0:
+        raise RuleError("Parts are added while the job is In Repair.")
+    if not lines:
+        raise RuleError("Pick the parts to add.")
+    if any(qty <= 0 for _, qty in lines):
         raise RuleError("Quantity must be at least 1.")
-    m.JobPart.objects.create(repair_job=job, part=part, quantity=quantity, part_status=m.PART_NEEDED)
-    stock = stock_for(job.store, part)
-    if stock and stock.quantity_on_hand >= quantity:
-        m.JobStatusHistory.objects.create(repair_job=job, status=job.status, changed_by=tech,
-                                          note=f"Added {part} x{quantity}")
-        return False
-    set_status(job, m.AWAITING_PARTS, tech, f"Requested {part} x{quantity}")
-    return True
+    short = []
+    for part, qty in lines:
+        m.JobPart.objects.create(repair_job=job, part=part, quantity=qty, part_status=m.PART_NEEDED)
+        stock = stock_for(job.store, part)
+        if not stock or stock.quantity_on_hand < qty:
+            short.append(f"{part} x{qty}")
+    added = ", ".join(f"{p} x{q}" for p, q in lines)
+    if short:
+        set_status(job, m.AWAITING_PARTS, tech, f"Added at no charge: {added}; waiting for " + ", ".join(short))
+        return True
+    m.JobStatusHistory.objects.create(repair_job=job, status=job.status, changed_by=tech,
+                                      note=f"Added at no charge: {added}")
+    return False
 
 
 @transaction.atomic

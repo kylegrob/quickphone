@@ -83,25 +83,20 @@
       <textarea id="rn" name="repair_notes" maxlength="2000" placeholder="What was done and tested">{{ job.repair_notes|default:"" }}</textarea>
       <div class="actions split"><button class="btn primary" name="action" value="complete">Mark ready for pickup</button></div>
     </form>
-    <details class="more"><summary>Add a part the quote did not cover</summary>
-      <form method="post" class="inline-form">{% csrf_token %}
-        <select name="part_id" aria-label="Part" style="width:auto;flex:1">{% for p in parts %}<option value="{{ p.pk }}">{{ p }} ({{ p.on_hand }} on hand)</option>{% endfor %}</select>
-        <input type="number" name="quantity" value="1" min="1" class="w-num" aria-label="Quantity">
-        <button class="btn small" name="action" value="request_part">Add part</button>
-      </form>
-      <p class="hint">In stock, it joins the list above. Out of stock, the job waits in Awaiting Parts until a Manager receives it. The customer is not charged for it; use an additional repair for that.</p>
-    </details>
-    {% if has_approved %}
-    <details class="more"><summary>The device needs an additional repair</summary>
+    <details class="more"><summary>Add parts or work</summary>
       <form method="post" id="quote-form">{% csrf_token %}
-        <label for="dx">Why is the additional repair needed?</label>
-        <textarea id="dx" name="diagnosis_notes" maxlength="2000" required></textarea>
+        <input type="hidden" name="action" value="add_work">
         {% include "shop/_quote_picker.html" with form_id="quote-form" %}
-        <p><button class="btn" name="action" value="quote">Send additional repair for approval</button></p>
-        <p class="hint">The customer must approve it before the repair continues.</p>
+        <fieldset class="choice"><legend class="label">Charge the customer?</legend>
+          <label><input type="radio" name="charge" value="yes" checked> Yes: send it as an additional repair; the customer approves before work continues</label>
+          <label><input type="radio" name="charge" value="no"> No: add the parts at no charge (for example, a part damaged during the repair)</label>
+        </fieldset>
+        <label for="dx">Reason</label>
+        <textarea id="dx" name="diagnosis_notes" maxlength="2000" placeholder="Why the extra parts or work are needed (required when charging)"></textarea>
+        <p><button class="btn">Add</button></p>
+        <p class="hint">Added parts join the list above and come off stock when you mark the job ready. Any that are out of stock put the job in Awaiting Parts.</p>
       </form>
     </details>
-    {% endif %}
     <details class="more"><summary>Quote{% if job.final_cost is not None %}: ${{ job.final_cost|floatformat:2 }} approved{% endif %}</summary>{% include "shop/_quotes.html" %}</details>
 
   {% else %}

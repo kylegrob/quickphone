@@ -466,7 +466,7 @@ class WorkflowTests(Base):
     def test_added_part_in_stock_is_taken_on_completion(self):
         job = self.job("Cracked screen")
         charger = self.on_hand("QP-CHG-USBC")
-        self.assertFalse(s.request_part(job, self.sam, self.part("QP-CHG-USBC"), 1))
+        self.assertFalse(s.add_parts(job, self.sam, [(self.part("QP-CHG-USBC"), 1)]))
         self.assertEqual(job.status, m.IN_REPAIR)
         self.assertIn("QP-CHG-USBC", [p.sku for p, _ in s.planned_parts(job)])
         s.complete_repair(job, self.sam, "")
@@ -481,6 +481,19 @@ class WorkflowTests(Base):
         self.assertEqual(s.planned_parts(job), [(self.part("QP-SCR-IP14"), 1)])
         s.complete_repair(job, job.assigned_tech, "")
         self.assertEqual(self.on_hand("QP-SCR-IP14"), 1)
+
+    def test_bench_add_work_charges_or_adds_free_parts(self):
+        job = self.job("Cracked screen")
+        url, charger = reverse("bench_job", args=[job.pk]), self.part("QP-CHG-USBC")
+        self.login(self.sam)
+        self.client.post(url, {"action": "add_work", "charge": "no", f"use_{charger.pk}": "on", f"qty_{charger.pk}": "1"})
+        job.refresh_from_db()
+        self.assertEqual((job.status, job.quotes.count()), (m.IN_REPAIR, 1))
+        self.assertIn(charger, [p for p, _ in s.planned_parts(job)])
+        self.client.post(url, {"action": "add_work", "charge": "yes", "diagnosis_notes": "Port worn.",
+                               f"use_{charger.pk}": "on", f"qty_{charger.pk}": "1"})
+        job.refresh_from_db()
+        self.assertEqual((job.status, job.quotes.count()), (m.AWAITING_APPROVAL, 2))
 
     def test_bench_completion_form_consumes_parts(self):
         job = self.job("Cracked screen")

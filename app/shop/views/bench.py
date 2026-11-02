@@ -6,7 +6,6 @@ job ready takes the planned parts off the store's stock (Kyle, 2026-11-02).
 Technicians see the customer's name only; phone and email are never sent to this
 screen (NFR04). Each technician sees only their own jobs plus open jobs to claim (FR04).
 """
-from django.contrib import messages
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -42,8 +41,6 @@ def bench(request, pk=None):
 
     if request.method == "POST" and job:
         action = request.POST.get("action")
-        part = m.Part.objects.filter(pk=request.POST.get("part_id") or 0, active_flag=True).first()
-        qty = to_int(request.POST.get("quantity"), 1)
         if action == "claim":
             attempt(request, services.claim, job, user, success=f"{job.ticket_number} is now in your queue.")
         elif action == "start":
@@ -60,15 +57,17 @@ def bench(request, pk=None):
         elif action == "unrepairable":
             attempt(request, services.mark_unrepairable, job, user, request.POST.get("diagnosis_notes", ""),
                     success="Marked as not repairable. No diagnostic fee is charged.")
-        elif action == "request_part" and part:
-            attempt(request, services.request_part, job, user, part, qty,
-                    success=lambda waits: f"{part} x{qty} requested; the job waits in Awaiting Parts." if waits
-                    else f"{part} x{qty} added; it comes off stock when you mark the job ready.")
+        elif action == "add_work" and request.POST.get("charge") == "yes":
+            attempt(request, services.submit_quote, job, user, request.POST.get("diagnosis_notes", ""),
+                    None, quote_lines(request.POST),
+                    success="Additional repair sent. Front Desk records the customer's decision.")
+        elif action == "add_work":
+            attempt(request, services.add_parts, job, user, quote_lines(request.POST),
+                    success=lambda waits: "Parts added; the job waits in Awaiting Parts for the ones out of stock."
+                    if waits else "Parts added; they come off stock when you mark the job ready.")
         elif action == "complete":
             attempt(request, services.complete_repair, job, user, request.POST.get("repair_notes", ""),
                     _used_lines(request.POST), success="Ready for pickup. Parts taken off stock.")
-        elif not part and action == "request_part":
-            messages.error(request, "Pick a part.")
         return redirect("bench_job", job.pk)
 
     ctx = {"mine": mine, "open_jobs": open_jobs, "job": job}
