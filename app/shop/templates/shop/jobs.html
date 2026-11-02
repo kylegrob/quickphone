@@ -5,7 +5,7 @@
   <div><h1>Repair jobs</h1><p>Find a job by ticket number or the customer's phone. Open repairs at {{ active_store.store_name }}.</p></div>
   <a class="btn primary" href="{% url 'checkin' %}">Check in a device</a>
 </div>
-<div class="tiles">
+<div class="tiles status-tiles">
   {% for s, n in counts.items %}<a class="tile" href="?status={{ s|urlencode }}"><span class="muted">{{ s }}</span><div class="n">{{ n }}</div></a>{% endfor %}
 </div>
 <form method="get" class="card" style="margin-bottom:22px">

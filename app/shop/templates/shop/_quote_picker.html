@@ -1,6 +1,6 @@
 {# Parts picker with a live quote total. Needs: parts, form_id. The server recalculates on save. #}
 <input type="search" class="part-filter" aria-label="Filter parts" placeholder="Filter parts by name, model or SKU">
-<table style="margin-top:8px">
+<div class="scroll-x"><table style="margin-top:8px">
   <thead><tr><th>Use</th><th>Part</th><th class="num">On hand</th><th class="num">Qty</th><th class="num">Part</th><th class="num">Labor</th></tr></thead>
   <tbody>{% for p in parts %}
     <tr>
@@ -11,9 +11,9 @@
       <td class="num">${{ p.standard_cost }}</td>
       <td class="num">${{ p.labor_cost }}</td></tr>
   {% endfor %}</tbody>
-</table>
+</table></div>
 <p class="hint">Labor is set by the Owner for each part. Parts that are out of stock can still be quoted; the job then waits in Awaiting Parts and a Manager orders them.</p>
-<div class="totals" style="margin-top:14px"><span>Parts</span><span class="t-parts">$0.00</span><span>Labor</span><span class="t-labor">$0.00</span>
+<div class="totals" style="margin-top:14px" aria-live="polite" aria-atomic="true"><span>Parts</span><span class="t-parts">$0.00</span><span>Labor</span><span class="t-labor">$0.00</span>
   <span class="grand">Quote total</span><span class="grand t-total">$0.00</span></div>
 <script>
 document.addEventListener('DOMContentLoaded', () => {

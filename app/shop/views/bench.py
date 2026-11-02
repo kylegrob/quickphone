@@ -70,7 +70,7 @@ def bench(request, pk=None):
                     _used_lines(request.POST), success="Ready for pickup. Parts taken off stock.")
         return redirect("bench_job", job.pk)
 
-    ctx = {"mine": mine, "open_jobs": open_jobs, "job": job}
+    ctx = {"mine": mine, "open_jobs": open_jobs, "job": job, "picked": bool(pk)}
     if job:
         quotes = list(job.quotes.order_by("quote_id").prefetch_related("lines__part"))
         parts = picker_parts(store, job.device.model)

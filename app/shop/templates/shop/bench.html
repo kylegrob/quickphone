@@ -5,14 +5,14 @@
   <div><h1>My assigned jobs</h1><p>Stock shown is for {{ active_store.store_name }}.</p></div>
 </div>
 
-<div class="grid-left">
-<nav aria-label="My jobs">
+<div class="grid-left{% if picked and job %} job-open{% endif %}">
+<nav aria-label="My jobs" class="joblist">
   {% for j in mine %}
     <a class="jobcard {% if job.pk == j.pk %}sel{% endif %}" href="{% url 'bench_job' j.pk %}">
       <div class="top-line"><span class="mono">{{ j.ticket_number }}</span><span class="pill {{ j.status|slugify }}">{{ j.status }}</span></div>
       <strong>{{ j.device }}</strong><span class="muted">{{ j.reported_issue|truncatechars:50 }}</span></a>
   {% empty %}<p class="muted">No jobs assigned to you.</p>{% endfor %}
-  <h3>Open jobs to claim</h3>
+  <h2 class="list-h">Open jobs to claim</h2>
   {% for j in open_jobs %}
     <a class="jobcard {% if job.pk == j.pk %}sel{% endif %}" href="{% url 'bench_job' j.pk %}">
       <div class="top-line"><span class="mono">{{ j.ticket_number }}</span><span class="pill">Open</span></div>
@@ -21,6 +21,7 @@
 </nav>
 
 <div class="stack">
+{% if job and picked %}<a class="back-link" href="{% url 'bench' %}">&larr; All my jobs</a>{% endif %}
 {% if job %}
   <section class="card">
     <div class="card-head"><div><h2 style="font-size:28px"><span class="mono">{{ job.ticket_number }}</span> · {{ job.device }}</h2>
@@ -70,14 +71,14 @@
   {% elif job.status == "In Repair" %}
     <h2>Repair</h2>
     <form method="post" id="complete-form">{% csrf_token %}
-      <table>
+      <div class="scroll-x"><table>
         <thead><tr><th>Parts for this repair</th><th class="num">On hand</th><th class="num">Using</th></tr></thead>
         <tbody>{% for r in plan %}
           <tr><td>{{ r.part }}<div class="part-sub sku">{{ r.part.sku }}</div></td>
             <td class="num">{% if r.on_hand < r.qty %}<span class="pill out">{{ r.on_hand }}</span>{% else %}{{ r.on_hand }}{% endif %}</td>
             <td class="num"><input type="number" name="used_{{ r.part.pk }}" value="{{ r.qty }}" min="0" class="w-num" aria-label="Quantity of {{ r.part }} used"></td></tr>
         {% empty %}<tr><td colspan="3" class="muted">No parts; labor only.</td></tr>{% endfor %}</tbody>
-      </table>
+      </table></div>
       <p class="hint">These come off {{ active_store.store_name }}'s stock when you mark the job ready. Change a quantity if you used more or fewer.</p>
       <label for="rn">Repair notes</label>
       <textarea id="rn" name="repair_notes" maxlength="2000" placeholder="What was done and tested">{{ job.repair_notes|default:"" }}</textarea>

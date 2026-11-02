@@ -2,18 +2,18 @@
 {% block title %}Dashboard{% endblock %}
 {% block content %}
 <div class="page-head"><div><h1>Both stores at a glance</h1><p>Open repairs and parts availability, by store</p></div></div>
-<div class="grid" style="grid-template-columns: 1fr 1fr">
+<div class="grid halves">
 {% for s in stores %}
   <section class="card">
     <div class="card-head"><div><h2>{{ s.store.store_name }}</h2><p>{{ s.store.address }}</p></div>
       <form method="post" action="{% url 'switch_store' %}">{% csrf_token %}<input type="hidden" name="store_id" value="{{ s.store.pk }}"><input type="hidden" name="next" value="{% url 'jobs' %}"><button class="btn small">Open this store's jobs</button></form></div>
-    <div class="tiles" style="grid-template-columns: repeat(3, 1fr)">
+    <div class="tiles three">
       <div class="tile"><span class="muted">Open repairs</span><div class="n">{{ s.open }}</div></div>
       <div class="tile"><span class="muted">Low-stock parts</span><div class="n {% if s.low %}alert{% endif %}">{{ s.low|length }}</div></div>
       <div class="tile"><span class="muted">Orders to approve</span><div class="n">{{ s.pending_pos }}</div></div>
     </div>
     <h3>Open repairs by status</h3>
-    <table><tbody>{% for status, n in s.by_status %}<tr><td><span class="pill {{ status|slugify }}">{{ status }}</span></td><td class="num"><strong>{{ n }}</strong></td></tr>{% endfor %}</tbody></table>
+    <table><thead><tr><th scope="col">Status</th><th scope="col" class="num">Jobs</th></tr></thead><tbody>{% for status, n in s.by_status %}<tr><td><span class="pill {{ status|slugify }}">{{ status }}</span></td><td class="num"><strong>{{ n }}</strong></td></tr>{% endfor %}</tbody></table>
     <h3>Parts at or below reorder point</h3>
     {% for st in s.low %}<p>{{ st.part }} <span class="muted">({{ st.part.sku }})</span>: <strong>{{ st.quantity_on_hand }}</strong> on hand, reorder at {{ st.reorder_point }} {% if st.is_out %}<span class="pill out">Out</span>{% else %}<span class="pill low">Low</span>{% endif %}</p>
     {% empty %}<p class="muted">None.</p>{% endfor %}

@@ -704,3 +704,33 @@ class AccessTests(Base):
         self.login(self.manager)
         for po in m.PurchaseOrder.objects.all():
             self.assertEqual(self.client.get(reverse("po_detail", args=[po.pk])).status_code, 200)
+
+
+class AccessibilityMarkupTests(Base):
+    """Checks from the Nov 2 responsive and accessibility audit (WCAG 2.2 AA)."""
+
+    def test_every_page_has_skip_link_and_menu_button(self):
+        self.login(self.desk)
+        html = self.client.get(reverse("checkin")).content.decode()
+        self.assertIn('href="#main"', html)
+        self.assertIn('<main id="main"', html)
+        self.assertIn('aria-controls="site-menu"', html)
+
+    def test_store_switch_needs_a_button_not_a_change_event(self):
+        # WCAG 3.2.2: choosing a store must not reload the page by itself.
+        self.login(self.owner)
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertNotIn("onchange", html)
+        self.assertIn(">Switch</button>", html)
+
+    def test_failed_check_in_marks_the_missing_fields(self):
+        self.login(self.desk)
+        html = self.client.post(reverse("checkin"), {"reported_issue": ""}).content.decode()
+        for field in ("first_name", "last_name", "new_phone", "issue"):
+            tag = html[html.index(f'id="{field}"'):]
+            self.assertIn('aria-invalid="true"', tag[:tag.index(">")], field)
+
+    def test_quote_total_is_announced(self):
+        self.login(self.desk)
+        html = self.client.get(reverse("checkin")).content.decode()
+        self.assertIn('aria-live="polite"', html)

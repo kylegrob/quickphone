@@ -6,7 +6,7 @@
   <div class="actions">{% if open_screens.orders %}<a class="btn" href="{% url 'po_list' %}">Purchase orders</a>{% endif %}<a class="btn" href="{% url 'inventory_import' %}">Import CSV</a><a class="btn" href="{% url 'part_new' %}">Add part</a></div>
 </div>
 
-{% if low_rows %}<div class="alert-box" role="alert"><strong>Low-stock alert:</strong> {{ low_rows|length }} part{{ low_rows|length|pluralize }} at or below the reorder point at {{ active_store.store_name }}:
+{% if low_rows %}<div class="alert-box"><strong>Low-stock alert:</strong> {{ low_rows|length }} part{{ low_rows|length|pluralize }} at or below the reorder point at {{ active_store.store_name }}:
   {% for r in low_rows %}{{ r.part }} ({{ r.stock.quantity_on_hand }}){% if not forloop.last %}, {% endif %}{% endfor %}.</div>{% endif %}
 
 <div class="tiles">

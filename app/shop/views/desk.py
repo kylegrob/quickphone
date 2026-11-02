@@ -64,6 +64,20 @@ def _model_hint(post):
     return entry.model if entry else post.get("new_model", "")
 
 
+def _invalid_checkin_fields(post, errors, customer):
+    """Fields to mark invalid after a failed check-in, so the error is tied to the field (WCAG 3.3.1)."""
+    bad = set()
+    if not customer:
+        bad |= {f for f in ("first_name", "last_name", "phone") if not post.get(f, "").strip()}
+        if any("already exists" in e for e in errors):
+            bad.add("phone")
+    if any(e.startswith("Pick the device") for e in errors):
+        bad.add("device_model")
+    if not post.get("reported_issue", "").strip():
+        bad.add("reported_issue")
+    return bad
+
+
 # Check-in (UC-01, DFD 2.0) -----------------------------------------------------
 
 @screen_required("checkin")
@@ -113,6 +127,7 @@ def checkin(request):
                 return redirect("job_ticket", job.pk)
         for e in errors:
             messages.error(request, e)
+    invalid = _invalid_checkin_fields(request.POST, errors, customer) if errors else set()
 
     start = timezone.make_aware(datetime.combine(day, datetime.min.time()))
     appointments = m.Appointment.objects.filter(
@@ -126,6 +141,7 @@ def checkin(request):
         "device_models": m.DeviceModel.objects.all(), "brands": m.DeviceModel.objects.order_by("brand").values_list("brand", flat=True).distinct(),
         "parts": picker_parts(store, _model_hint(request.POST), request.POST),
         "preselected_tech": appointment.technician_id if appointment else to_int(request.POST.get("technician_id")),
+        "invalid": invalid,
     })
 
 
