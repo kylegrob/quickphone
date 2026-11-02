@@ -135,14 +135,11 @@ def _approved_total(job):
 
 @transaction.atomic
 def check_in(user, store, device, reported_issue, intake_condition="", passcode="", technician=None, appointment=None,
-             quote_lines=(), quote_approved=False):
-    """quote_lines: (Part, quantity) pairs the customer has chosen. The quote is shown at the counter and,
-    once the customer agrees, is stored as approved so repair needs no second approval (owner, 2026-10-30)."""
+             quote_lines=()):
+    """quote_lines: (Part, quantity) pairs the customer has chosen. The quote is shown at the counter and
+    creating the job approves it, so repair needs no second approval (owner, 2026-10-30 and 2026-11-02)."""
     if not reported_issue.strip():
         raise RuleError("Enter the reported problem.")
-    if quote_lines and not quote_approved:
-        raise RuleError("Tick that the customer approves the quote, or clear the parts so the technician "
-                        "quotes after diagnosis.")
     if technician and not can_repair_at(technician, store):
         raise RuleError("Pick a technician from this store.")
     if appointment:

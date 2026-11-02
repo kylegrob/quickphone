@@ -161,9 +161,9 @@ class Command(BaseCommand):
         s.start_diagnosis(j, jordan)
         s.mark_unrepairable(j, jordan, "Liquid damage to the board; keyboard controller failed. Not repairable.")
         job(s1, device(maria, "Game console", "Nintendo", "Switch"), "Joy-Con drift", None)
-        # Quoted at the counter and approved at check-in, so the technician needs no second approval.
+        # Quoted at the counter and approved by creating the job, so the technician needs no second approval.
         s.check_in(desk, s1, device(david, "Phone", "Samsung", "Galaxy A54"), "Battery drains fast", "", "", sam,
-                   None, [(parts["QP-BAT-A54"], 1)], True)
+                   None, [(parts["QP-BAT-A54"], 1)])
 
         # A Manager's purchase order waiting for approval, linked to the iPhone 14 job.
         po = s.add_to_po(s1, parts["QP-SCR-IP14"], 3, morgan)

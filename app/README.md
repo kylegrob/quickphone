@@ -46,7 +46,7 @@ Ask trainees to finish exercises 1, 4 and 8 without help; that is the acceptance
 
 ## Changes from the owner (Oct 30)
 
-- **The quote is shown at check-in.** It is the part cost plus the labor the Owner sets for each part (Inventory, edit a part; only the Owner can change it). When the customer agrees, tick "The customer approves this quote"; repair then needs no second approval. Leave the parts blank when the device needs diagnosis first, and the technician quotes as before.
+- **The quote is shown at check-in.** It is the part cost plus the labor the Owner sets for each part (Inventory, edit a part; only the Owner can change it). Clicking Create job approves the quote, so repair needs no second approval. Leave the parts blank when the device needs diagnosis first, and the technician quotes as before.
 - **Only an additional repair is re-approved.** From Diagnosing or In Repair the technician sends an additional repair; Front Desk records the answer. A declined additional repair leaves the approved repair going. The approved total is the sum of the approved quotes.
 - **Technicians can check in customers** and print the claim ticket, but still cannot open the job list, payment or release.
 - **Managers and the Owner can repair devices**: they can be assigned a job, claim an open one and use the same repair screen ("My repair jobs").

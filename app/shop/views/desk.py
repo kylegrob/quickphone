@@ -101,8 +101,7 @@ def checkin(request):
                     job = services.check_in(
                         request.user, store, device, request.POST.get("reported_issue", ""),
                         request.POST.get("intake_condition", "").strip(), request.POST.get("passcode", ""),
-                        tech, appointment, quote_lines(request.POST),
-                        request.POST.get("quote_approved") == "on")
+                        tech, appointment, quote_lines(request.POST))
                 except services.RuleError as exc:
                     errors.append(str(exc))
             if errors:

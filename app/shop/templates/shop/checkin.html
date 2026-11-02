@@ -106,9 +106,8 @@
     </div>
 
     <h2 id="quote-h" style="margin-top:24px">Repair quote</h2>
-    <p class="muted">Tick the repair the customer wants. The quote is the part cost plus the labor the Owner has set for that repair. If the customer agrees, repair starts on this quote with no second approval, unless the technician later finds an additional repair. Leave it blank if the device needs diagnosis first.</p>
+    <p class="muted">Tick the repair the customer wants. The quote is the part cost plus the labor the Owner has set for that repair. Creating the job approves this quote, and repair starts on it with no second approval, unless the technician later finds an additional repair. Leave it blank if the device needs diagnosis first.</p>
     {% include "shop/_quote_picker.html" with form_id="checkin-form" %}
-    <label style="font-weight:400;display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="quote_approved" {% if post.quote_approved %}checked{% endif %} style="width:22px;height:22px"> The customer approves this quote</label>
   </form>
 </div>
 

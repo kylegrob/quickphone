@@ -88,10 +88,10 @@ class QuoteAtCheckInTests(Base):
     """Owner, 2026-10-30: quote shown at check-in from part cost plus the Owner's labor; re-approved
     only for an additional repair. Technician, Manager and Owner can check in and repair."""
 
-    def check_in(self, user, lines, approved=True, tech=None, issue="Cracked screen at counter"):
+    def check_in(self, user, lines, tech=None, issue="Cracked screen at counter"):
         cust = m.Customer.objects.get(last_name="Walsh")
         dev = m.Device.objects.create(customer=cust, model="iPhone 13", brand="Apple")
-        return s.check_in(user, self.store1, dev, issue, "", "", tech, None, lines, approved)
+        return s.check_in(user, self.store1, dev, issue, "", "", tech, None, lines)
 
     def test_quote_is_part_cost_plus_owner_labor_and_stored_approved(self):
         job = self.check_in(self.desk, [(self.part("QP-SCR-IP13"), 1), (self.part("QP-ADH-KIT"), 1)])
@@ -102,13 +102,8 @@ class QuoteAtCheckInTests(Base):
         self.assertEqual((job.final_cost, job.status), (Decimal("119.00"), m.CHECKED_IN))
         self.assertEqual(q.lines.count(), 2)
 
-    def test_quote_needs_the_customer_to_approve_it(self):
-        with self.assertRaises(s.RuleError):
-            self.check_in(self.desk, [(self.part("QP-SCR-IP13"), 1)], approved=False)
-        self.assertFalse(m.RepairJob.objects.filter(reported_issue="Cracked screen at counter").exists())
-
     def test_checkin_without_parts_has_no_quote(self):
-        job = self.check_in(self.desk, [], approved=False)
+        job = self.check_in(self.desk, [])
         self.assertIsNone(job.current_quote)
 
     def test_checkin_screen_posts_a_quote(self):
@@ -117,10 +112,13 @@ class QuoteAtCheckInTests(Base):
         scr = self.part("QP-SCR-IP13")
         self.client.post(reverse("checkin"), {
             "customer_id": cust.pk, "device_model_id": self.listed("iPhone 13").pk, "reported_issue": "Screen via form",
-            f"use_{scr.pk}": "on", f"qty_{scr.pk}": "1", "quote_approved": "on"})
+            f"use_{scr.pk}": "on", f"qty_{scr.pk}": "1"})
         job = self.job("Screen via form")
         self.assertEqual(job.current_quote.total_amount, Decimal("117.00"))
-        self.assertContains(self.client.get(reverse("checkin")), "Repair quote")
+        self.assertEqual((job.current_quote.decision, job.current_quote.decision_by), (m.Q_APPROVED, self.desk))
+        page = self.client.get(reverse("checkin"))
+        self.assertContains(page, "Repair quote")
+        self.assertNotContains(page, "quote_approved")
 
     def test_confirmed_diagnosis_starts_repair_without_second_approval(self):
         job = self.check_in(self.desk, [(self.part("QP-BAT-IP12"), 1)], tech=self.sam)
