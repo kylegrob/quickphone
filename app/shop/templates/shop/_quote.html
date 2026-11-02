@@ -1,9 +1,9 @@
 {% if quote %}
-<table>
+<div class="scroll-x"><table>
   <thead><tr><th>Part</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Line</th></tr></thead>
   <tbody>{% for l in quote.lines.all %}<tr><td>{{ l.part }}<div class="part-sub sku">{{ l.part.sku }}</div></td><td class="num">{{ l.quantity }}</td><td class="num">${{ l.unit_cost }}</td><td class="num">${{ l.line_total|floatformat:2 }}</td></tr>
   {% empty %}<tr><td colspan="4" class="muted">No parts; labor only.</td></tr>{% endfor %}</tbody>
-</table>
+</table></div>
 <div class="totals" style="margin-top:14px">
   <span>Parts</span><span>${{ quote.parts_amount }}</span>
   <span>Labor</span><span>${{ quote.labor_amount }}</span>

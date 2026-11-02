@@ -13,12 +13,12 @@
   {% if po.po_status == "Draft" %}
   <form method="post" class="card">{% csrf_token %}<input type="hidden" name="action" value="save_lines">
     <h2>Order lines</h2>
-    <table><thead><tr><th>Part</th><th class="num">Unit cost</th><th class="num">Qty</th><th class="num">Line</th><th>Remove</th></tr></thead>
+    <div class="scroll-x"><table><thead><tr><th>Part</th><th class="num">Unit cost</th><th class="num">Qty</th><th class="num">Line</th><th>Remove</th></tr></thead>
     <tbody>{% for l in lines %}<tr><td>{{ l.part }}<div class="part-sub sku">{{ l.part.sku }}</div></td><td class="num">${{ l.unit_cost }}</td>
       <td class="num"><input type="number" name="qty_{{ l.pk }}" value="{{ l.quantity_ordered }}" min="1" class="w-num" aria-label="Quantity"></td>
       <td class="num">${{ l.line_total|floatformat:2 }}</td>
       <td><input type="checkbox" name="remove_{{ l.pk }}" aria-label="Remove {{ l.part }}" style="width:22px;height:22px"></td></tr>
-    {% empty %}<tr><td colspan="5" class="muted">No lines yet.</td></tr>{% endfor %}</tbody></table>
+    {% empty %}<tr><td colspan="5" class="muted">No lines yet.</td></tr>{% endfor %}</tbody></table></div>
     <div class="inline-form" style="margin-top:14px">
       <label for="add" style="margin:0">Add a part from {{ po.supplier }}</label>
       <select id="add" name="add_part_id" style="width:auto;flex:1"><option value="">None</option>{% for p in supplier_parts %}<option value="{{ p.pk }}">{{ p }} ({{ p.sku }})</option>{% endfor %}</select>
@@ -31,9 +31,9 @@
     {% if po.po_status == "Approved" or po.po_status == "Ordered" %}
     <form method="post">{% csrf_token %}<input type="hidden" name="action" value="receive">
     {% endif %}
-    <table><thead><tr><th>Part</th><th class="num">Unit cost</th><th class="num">Ordered</th><th class="num">Received</th>{% if po.po_status == "Approved" or po.po_status == "Ordered" %}<th class="num">Arriving now</th>{% endif %}</tr></thead>
+    <div class="scroll-x"><table><thead><tr><th>Part</th><th class="num">Unit cost</th><th class="num">Ordered</th><th class="num">Received</th>{% if po.po_status == "Approved" or po.po_status == "Ordered" %}<th class="num">Arriving now</th>{% endif %}</tr></thead>
     <tbody>{% for l in lines %}<tr><td>{{ l.part }}<div class="part-sub sku">{{ l.part.sku }}</div></td><td class="num">${{ l.unit_cost }}</td><td class="num">{{ l.quantity_ordered }}</td><td class="num">{{ l.quantity_received }}</td>
-      {% if po.po_status == "Approved" or po.po_status == "Ordered" %}<td class="num">{% if l.outstanding %}<input type="number" name="recv_{{ l.pk }}" value="{{ l.outstanding }}" min="0" max="{{ l.outstanding }}" class="w-num" aria-label="Quantity arriving">{% else %}Done{% endif %}</td>{% endif %}</tr>{% endfor %}</tbody></table>
+      {% if po.po_status == "Approved" or po.po_status == "Ordered" %}<td class="num">{% if l.outstanding %}<input type="number" name="recv_{{ l.pk }}" value="{{ l.outstanding }}" min="0" max="{{ l.outstanding }}" class="w-num" aria-label="Quantity arriving">{% else %}Done{% endif %}</td>{% endif %}</tr>{% endfor %}</tbody></table></div>
     {% if po.po_status == "Approved" or po.po_status == "Ordered" %}
       <p class="hint">Enter what actually arrived. A partial delivery keeps the order open; stock goes up now, and jobs waiting on these parts go back to In Repair.</p>
       <p><button class="btn primary">Receive delivery</button></p></form>
