@@ -2,7 +2,7 @@
 {% block title %}Purchase orders{% endblock %}
 {% block content %}
 <div class="page-head">
-  <div><h1>Purchase orders</h1><p>Draft → Pending Approval → Approved → Ordered → Received. {{ active_store.store_name }}.</p></div>
+  <div><h1>Purchase orders</h1><p>{{ active_store.store_name }}</p></div>
   <a class="btn" href="{% url 'inventory' %}">Back to inventory</a>
 </div>
 <div class="chips" style="margin-bottom:20px">

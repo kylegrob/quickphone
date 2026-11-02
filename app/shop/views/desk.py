@@ -123,7 +123,7 @@ def checkin(request):
                     appointment.customer if appointment else None)
                 transaction.set_rollback(True)  # after the lookup: no queries run once it is set
             else:
-                messages.success(request, f"Job {job.ticket_number} created. Print the claim ticket and device tag.")
+                messages.success(request, f"Job {job.ticket_number} created.")
                 return redirect("job_ticket", job.pk)
         for e in errors:
             messages.error(request, e)
@@ -236,7 +236,7 @@ def job_detail(request, pk):
             attempt(request, services.record_decision, job, user, True, success="Approval recorded.")
         elif action == "decline":
             attempt(request, services.record_decision, job, user, False,
-                    success="Decline recorded. The device goes back unrepaired.")
+                    success="Decline recorded.")
         elif action == "payment":
             attempt(request, services.record_payment, job, user, request.POST.get("amount") or "0",
                     request.POST.get("method"), success="Payment recorded.")
@@ -265,7 +265,7 @@ def job_notify(request, pk):
         job = get_job(request, pk)
     if request.method == "POST":
         attempt(request, services.send_pickup_notification, job, request.user,
-                success="Pickup notification sent from the store's email account.")
+                success="Pickup notification sent.")
     return redirect("bench_job" if request.user.role == m.TECHNICIAN else "job_detail", job.pk)
 
 

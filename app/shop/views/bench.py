@@ -47,20 +47,20 @@ def bench(request, pk=None):
             attempt(request, services.start_diagnosis, job, user)
         elif action == "confirm":
             attempt(request, services.confirm_repair, job, user, request.POST.get("diagnosis_notes", ""),
-                    success="Repair started on the quote the customer approved at check-in.")
+                    success="Repair started.")
         elif action == "quote":
             extra = job.has_approved_quote
             attempt(request, services.submit_quote, job, user, request.POST.get("diagnosis_notes", ""),
                     None, quote_lines(request.POST),
-                    success="Additional repair sent. Front Desk records the customer's decision." if extra
+                    success="Additional repair sent for approval." if extra
                     else "Quote sent. Front Desk records the customer's decision.")
         elif action == "unrepairable":
             attempt(request, services.mark_unrepairable, job, user, request.POST.get("diagnosis_notes", ""),
-                    success="Marked as not repairable. No diagnostic fee is charged.")
+                    success="Marked as not repairable.")
         elif action == "add_work" and request.POST.get("charge") == "yes":
             attempt(request, services.submit_quote, job, user, request.POST.get("diagnosis_notes", ""),
                     None, quote_lines(request.POST),
-                    success="Additional repair sent. Front Desk records the customer's decision.")
+                    success="Additional repair sent for approval.")
         elif action == "add_work":
             attempt(request, services.add_parts, job, user, quote_lines(request.POST),
                     success=lambda waits: "Parts added; the job waits in Awaiting Parts for the ones out of stock."

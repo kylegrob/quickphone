@@ -2,7 +2,7 @@
 {% block title %}Ticket {{ job.ticket_number }}{% endblock %}
 {% block content %}
 <div class="page-head no-print">
-  <div><h1>Claim ticket and device tag</h1><p>Give the claim ticket to the customer and attach the device tag to the device. Both carry the same number.</p></div>
+  <div><h1>Claim ticket and device tag</h1></div>
   <div class="actions"><button class="btn primary" onclick="window.print()">Print</button><a class="btn" href="{% url 'job_detail' job.pk %}">Open job</a><a class="btn" href="{% url 'checkin' %}">Next check-in</a></div>
 </div>
 <div class="card" style="max-width:560px">

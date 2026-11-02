@@ -2,7 +2,7 @@
 {% block title %}Parts inventory{% endblock %}
 {% block content %}
 <div class="page-head">
-  <div><h1>Parts inventory</h1><p>Low stock means at or below the reorder point. A Manager approves every purchase order.</p></div>
+  <div><h1>Parts inventory</h1></div>
   <div class="actions">{% if open_screens.orders %}<a class="btn" href="{% url 'po_list' %}">Purchase orders</a>{% endif %}<a class="btn" href="{% url 'inventory_import' %}">Import CSV</a><a class="btn" href="{% url 'part_new' %}">Add part</a></div>
 </div>
 
@@ -55,11 +55,11 @@
 </div>
 
 <aside class="card">
-  <h2>Open purchase orders</h2><p class="muted">One supplier per order · {{ active_store.store_name }}</p>
+  <h2>Open purchase orders</h2>
   {% for po in orders %}
     <a class="jobcard" href="{% url 'po_detail' po.pk %}"><div class="top-line"><span class="mono">{{ po.number }}</span><span class="pill {{ po.po_status|slugify }}">{{ po.po_status }}</span></div>
       <strong>{{ po.supplier }}</strong><span class="muted">${{ po.total|floatformat:2 }}{% if po.rejection_reason %} · returned: {{ po.rejection_reason }}{% endif %}</span></a>
-  {% empty %}<p class="muted">No open orders. Use Add to PO on a low part to start one.</p>{% endfor %}
+  {% empty %}<p class="muted">No open orders.</p>{% endfor %}
 </aside>
 </div>
 {% endblock %}

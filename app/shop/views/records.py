@@ -170,7 +170,7 @@ def access(request):
                     else:
                         m.ScreenAccess.objects.update_or_create(
                             role=role, screen=screen, defaults={"allowed": want, "updated_by": request.user})
-        messages.success(request, "Access saved. It applies the next time each person opens a screen.")
+        messages.success(request, "Access saved.")
         return redirect("access")
     overrides = {(a.role, a.screen): a for a in m.ScreenAccess.objects.select_related("updated_by")}
     rows = []

@@ -35,7 +35,6 @@
     <tbody>{% for l in lines %}<tr><td>{{ l.part }}<div class="part-sub sku">{{ l.part.sku }}</div></td><td class="num">${{ l.unit_cost }}</td><td class="num">{{ l.quantity_ordered }}</td><td class="num">{{ l.quantity_received }}</td>
       {% if po.po_status == "Approved" or po.po_status == "Ordered" %}<td class="num">{% if l.outstanding %}<input type="number" name="recv_{{ l.pk }}" value="{{ l.outstanding }}" min="0" max="{{ l.outstanding }}" class="w-num" aria-label="Quantity arriving">{% else %}Done{% endif %}</td>{% endif %}</tr>{% endfor %}</tbody></table></div>
     {% if po.po_status == "Approved" or po.po_status == "Ordered" %}
-      <p class="hint">Enter what actually arrived. A partial delivery keeps the order open; stock goes up now, and jobs waiting on these parts go back to In Repair.</p>
       <p><button class="btn primary">Receive delivery</button></p></form>
     {% endif %}
   </section>
@@ -46,7 +45,7 @@
       <form method="post">{% csrf_token %}<input type="hidden" name="action" value="submit">
       {% for w in waiting %}<label style="font-weight:400;display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="link_job_part" value="{{ w.pk }}" checked style="width:22px;height:22px">
         <span class="mono">{{ w.repair_job.ticket_number }}</span> {{ w.repair_job.device }} needs {{ w.part }} × {{ w.quantity }}</label>
-      {% empty %}<p class="muted">No jobs at this store are waiting on these parts.</p>{% endfor %}
+      {% empty %}<p class="muted">None.</p>{% endfor %}
       <div class="totals" style="margin:16px 0"><span class="grand">Order total</span><span class="grand">${{ po.total|floatformat:2 }}</span></div>
       <div class="actions"><button class="btn primary">Submit for a Manager's approval</button>
         <button class="btn danger" name="action" value="delete" formnovalidate onclick="return confirm('Delete this draft?')">Delete draft</button></div>
@@ -66,14 +65,13 @@
   </section>
   {% if po.po_status == "Pending Approval" %}
   <section class="card"><h2>Approval</h2>
-    <p class="muted">Every purchase order needs a Manager's approval before it is placed.</p>
     <form method="post">{% csrf_token %}<input type="hidden" name="action" value="approve"><button class="btn primary block">Approve order</button></form>
     <form method="post" style="margin-top:16px">{% csrf_token %}<input type="hidden" name="action" value="reject">
       <label for="reason">Reason for returning it</label><input type="text" id="reason" name="reason" maxlength="300" required>
       <p><button class="btn danger block">Return to Draft</button></p></form>
   </section>
   {% elif po.po_status == "Approved" %}
-  <section class="card"><h2>Place the order</h2><p class="muted">Order from {{ po.supplier }} outside the system, then mark it ordered.</p>
+  <section class="card"><h2>Place the order</h2>
     <form method="post">{% csrf_token %}<input type="hidden" name="action" value="ordered"><button class="btn primary block">Mark as ordered</button></form></section>
   {% endif %}
 </aside>

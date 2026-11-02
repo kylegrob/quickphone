@@ -2,7 +2,7 @@
 {% block title %}My jobs{% endblock %}
 {% block content %}
 <div class="page-head">
-  <div><h1>My assigned jobs</h1><p>Stock shown is for {{ active_store.store_name }}.</p></div>
+  <div><h1>My assigned jobs</h1></div>
 </div>
 
 <div class="grid-left{% if picked and job %} job-open{% endif %}">
@@ -29,7 +29,7 @@
       <span class="pill {{ job.status|slugify }}">{{ job.status }}</span></div>
     {% include "shop/_steps.html" %}
     <dl class="kv">
-      <dt>Customer</dt><dd>{{ job.customer }}{% if can_contact %} · {{ job.customer.phone }}{% if job.customer.email %} · {{ job.customer.email }}{% endif %}{% elif user.role == "Technician" %} <span class="muted">(contact details hidden for the Technician role)</span>{% endif %}</dd>
+      <dt>Customer</dt><dd>{{ job.customer }}{% if can_contact %} · {{ job.customer.phone }}{% if job.customer.email %} · {{ job.customer.email }}{% endif %}{% endif %}</dd>
       <dt>Reported problem</dt><dd>{{ job.reported_issue }}</dd>
       <dt>Condition</dt><dd>{{ job.intake_condition|default:"Not recorded" }}</dd>
       {% if job.device_passcode %}<dt>Passcode</dt><dd>{% if passcode %}<span class="mono">{{ passcode }}</span>{% else %}On file; visible once the job is assigned to you{% endif %}</dd>{% endif %}
@@ -48,8 +48,7 @@
   {% if job.status == "Diagnosing" %}
     <form method="post" id="quote-form">{% csrf_token %}
       <h2>{% if has_approved %}Diagnosis{% else %}Diagnosis and quote{% endif %}</h2>
-      {% if has_approved %}<p class="muted">The customer approved this quote at check-in. If the diagnosis agrees, start the repair; no second approval is needed.</p>
-        {% include "shop/_quotes.html" %}{% endif %}
+      {% if has_approved %}{% include "shop/_quotes.html" %}{% endif %}
       <label for="dx">Diagnosis</label>
       <textarea id="dx" name="diagnosis_notes" maxlength="2000" placeholder="Findings and tests performed" required>{{ job.diagnosis_notes|default:"" }}</textarea>
       {% if has_approved %}
@@ -79,7 +78,6 @@
             <td class="num"><input type="number" name="used_{{ r.part.pk }}" value="{{ r.qty }}" min="0" class="w-num" aria-label="Quantity of {{ r.part }} used"></td></tr>
         {% empty %}<tr><td colspan="3" class="muted">No parts; labor only.</td></tr>{% endfor %}</tbody>
       </table></div>
-      <p class="hint">These come off {{ active_store.store_name }}'s stock when you mark the job ready. Change a quantity if you used more or fewer.</p>
       <label for="rn">Repair notes</label>
       <textarea id="rn" name="repair_notes" maxlength="2000" placeholder="What was done and tested">{{ job.repair_notes|default:"" }}</textarea>
       <div class="actions split"><button class="btn primary" name="action" value="complete">Mark ready for pickup</button></div>
@@ -89,23 +87,20 @@
         <input type="hidden" name="action" value="add_work">
         {% include "shop/_quote_picker.html" with form_id="quote-form" %}
         <fieldset class="choice"><legend class="label">Charge the customer?</legend>
-          <label><input type="radio" name="charge" value="yes" checked> Yes: send it as an additional repair; the customer approves before work continues</label>
-          <label><input type="radio" name="charge" value="no"> No: add the parts at no charge (for example, a part damaged during the repair)</label>
+          <label><input type="radio" name="charge" value="yes" checked> Yes: send for customer approval</label>
+          <label><input type="radio" name="charge" value="no"> No charge</label>
         </fieldset>
         <label for="dx">Reason</label>
-        <textarea id="dx" name="diagnosis_notes" maxlength="2000" placeholder="Why the extra parts or work are needed (required when charging)"></textarea>
+        <textarea id="dx" name="diagnosis_notes" maxlength="2000" ></textarea>
         <p><button class="btn">Add</button></p>
-        <p class="hint">Added parts join the list above and come off stock when you mark the job ready. Any that are out of stock put the job in Awaiting Parts.</p>
       </form>
     </details>
     <details class="more"><summary>Quote{% if job.final_cost is not None %}: ${{ job.final_cost|floatformat:2 }} approved{% endif %}</summary>{% include "shop/_quotes.html" %}</details>
 
   {% else %}
     <h2>{% if job.status == "Awaiting Approval" or job.status == "Checked In" %}Quote{% elif job.status == "Awaiting Parts" %}Waiting for parts{% else %}Repair summary{% endif %}</h2>
-    {% if job.status == "Awaiting Approval" %}<p class="note-box">Waiting for Front Desk to record the customer's decision. Repair cannot continue until it is approved.</p>{% endif %}
     {% if job.status == "Awaiting Parts" %}
       {% for n in needed %}<p>{{ n.part }} × {{ n.quantity }} <span class="pill awaiting-parts">Needed</span>{% if n.purchase_order %} on {{ n.purchase_order.number }} ({{ n.purchase_order.po_status }}){% endif %}</p>{% endfor %}
-      <p class="hint">The job returns to In Repair when a Manager receives the parts.</p>
     {% endif %}
     {% if used %}<h3>Parts used</h3>{% for u in used %}<p>{{ u.part }} × {{ u.quantity }} <span class="muted small">{{ u.recorded_at|date:"M j, g:i A" }}</span></p>{% endfor %}{% endif %}
     {% if job.repair_notes and job.status != "Awaiting Parts" %}<h3>Repair notes</h3><p>{{ job.repair_notes }}</p>{% endif %}
@@ -116,8 +111,7 @@
     <h3>Pickup notification</h3>
     {% if job.email_sent_at %}<p><span class="pill {{ job.email_status|slugify }}">{{ job.email_status }}</span> {{ job.email_sent_at|date:"M j, g:i A" }} by {{ job.email_sent_by.first_name }}</p>{% endif %}
     {% if has_email %}<form method="post" action="{% url 'job_notify' job.pk %}">{% csrf_token %}<button class="btn">{% if job.email_sent_at %}Send again{% else %}Send pickup notification{% endif %}</button></form>
-    <p class="hint">Sent from the store's email account. The customer's address is not shown to technicians.</p>
-    {% else %}<p class="hint">No email on file; Front Desk will phone the customer.</p>{% endif %}
+    {% else %}<p class="muted">No email on file.</p>{% endif %}
     {% endif %}
   {% endif %}
   </section>
@@ -125,7 +119,7 @@
 
   {% include "shop/_history.html" with collapsed=True %}
 {% else %}
-  <section class="card"><h2>No job selected</h2><p class="muted">Pick a job on the left, or claim an open one.</p></section>
+  <section class="card"><h2>No job selected</h2></section>
 {% endif %}
 </div>
 </div>

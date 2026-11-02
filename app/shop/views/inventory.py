@@ -211,13 +211,13 @@ def po_detail(request, pk):
             messages.success(request, "Order lines saved.")
         elif action == "submit":
             ids = [to_int(i) for i in p.getlist("link_job_part")]
-            attempt(request, services.submit_po, po, user, ids, success="Submitted for a Manager's approval.")
+            attempt(request, services.submit_po, po, user, ids, success="Submitted for approval.")
         elif action == "approve":
-            attempt(request, services.approve_po, po, user, success="Order approved. It can now be placed.")
+            attempt(request, services.approve_po, po, user, success="Order approved.")
         elif action == "reject":
-            attempt(request, services.reject_po, po, user, p.get("reason"), success="Returned to Draft with your reason.")
+            attempt(request, services.reject_po, po, user, p.get("reason"), success="Returned to Draft.")
         elif action == "ordered":
-            attempt(request, services.mark_ordered, po, user, success="Marked as ordered from the supplier.")
+            attempt(request, services.mark_ordered, po, user, success="Marked as ordered.")
         elif action == "receive":
             received = {line.pk: to_int(p.get(f"recv_{line.pk}")) for line in po.lines.all()}
             attempt(request, services.receive_po, po, user, received,

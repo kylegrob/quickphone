@@ -1,7 +1,7 @@
 {% extends "shop/base.html" %}
 {% block title %}Staff and suppliers{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>Staff, stores and suppliers</h1><p>Each account has one role and a home store. Only the Owner can give the Owner role.</p></div>
+<div class="page-head"><div><h1>Staff, stores and suppliers</h1></div>
 <div class="actions"><a class="btn" href="{% url 'supplier_new' %}">Add supplier</a><a class="btn primary" href="{% url 'staff_new' %}">Add staff account</a></div></div>
 <div class="card table-card" style="margin-bottom:24px">
 <table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Store</th><th>Status</th></tr></thead>
