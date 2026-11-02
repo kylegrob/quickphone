@@ -1,7 +1,10 @@
+{# collapsed: show the history folded away, for screens where it is reference only (the bench). #}
 <section class="card">
-  <h2>History</h2><p class="muted">Every status change, approval, payment and release, with who and when</p>
+  {% if collapsed %}<details class="more bare"><summary><h2 style="display:inline">History</h2> <span class="muted small">({{ history|length }})</span></summary>
+  {% else %}<h2>History</h2><p class="muted">Every status change, approval, payment and release, with who and when</p>{% endif %}
   <ul class="history">
     {% for h in history %}<li><span class="pill {{ h.status|slugify }}">{{ h.status }}</span> {{ h.note|default:"" }}
       <div class="muted small">{{ h.changed_by.first_name }} {{ h.changed_by.last_name }} ({{ h.changed_by.role }}) · {{ h.changed_at|date:"M j, g:i A" }}</div></li>{% endfor %}
   </ul>
+  {% if collapsed %}</details>{% endif %}
 </section>

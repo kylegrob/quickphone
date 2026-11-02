@@ -150,7 +150,7 @@ class QuoteAtCheckInTests(Base):
         s.submit_quote(job, self.sam, "Port is also damaged.", None, [(self.part("QP-CHG-USBC"), 1)])  # 15 + 35
         self.assertEqual(job.status, m.AWAITING_APPROVAL)
         with self.assertRaises(s.RuleError):
-            s.record_part_used(job, self.sam, self.part("QP-BAT-IP12"), 1)  # no work until approved
+            s.complete_repair(job, self.sam, "")  # no work until approved
         s.record_decision(job, self.desk, True)
         self.assertEqual((job.status, job.final_cost), (m.IN_REPAIR, Decimal("118.00")))
         self.assertIn("Additional repair: Port is also damaged.", job.diagnosis_notes)
@@ -189,7 +189,6 @@ class QuoteAtCheckInTests(Base):
             job.refresh_from_db()
             self.assertEqual(job.assigned_tech, user)
             for action, data in [("start", {}), ("confirm", {"diagnosis_notes": "ok"}),
-                                 ("use_part", {"part_id": self.part("QP-BAT-IP12").pk, "quantity": 1}),
                                  ("complete", {"repair_notes": "done"})]:
                 self.client.post(reverse("bench_job", args=[job.pk]), {"action": action, **data})
             job.refresh_from_db()
@@ -423,8 +422,6 @@ class WorkflowTests(Base):
         s.record_decision(job, self.desk, False)
         self.assertEqual(job.status, m.UNREPAIRED)
         with self.assertRaises(s.RuleError):
-            s.record_part_used(job, self.sam, self.part("QP-BAT-IP12"), 1)
-        with self.assertRaises(s.RuleError):
             s.complete_repair(job, self.sam, "")
 
     def test_fr05_quote_total_and_approval_recorded(self):
@@ -436,21 +433,67 @@ class WorkflowTests(Base):
         self.assertEqual((q.decision, q.decision_by), (m.Q_APPROVED, self.desk))
         self.assertEqual(job.status, m.IN_REPAIR)
 
-    def test_fr07_part_used_deducts_stock(self):
+    def test_fr07_completion_takes_quoted_parts_off_stock(self):
+        job = self.job("Cracked screen")  # In Repair on screen + adhesive kit
+        before = {sku: self.on_hand(sku) for sku in ("QP-SCR-IP13", "QP-ADH-KIT")}
+        s.complete_repair(job, self.sam, "Screen replaced.")
+        self.assertEqual(job.status, m.READY)
+        for sku, n in before.items():
+            self.assertEqual(self.on_hand(sku), n - 1, sku)
+            txn = m.InventoryTxn.objects.filter(part__sku=sku, txn_type=m.TXN_USED).get()
+            self.assertEqual((txn.quantity_change, txn.recorded_by), (-1, self.sam))
+        self.assertEqual(sorted(job.parts.filter(part_status=m.PART_USED).values_list("part__sku", flat=True)),
+                         ["QP-ADH-KIT", "QP-SCR-IP13"])
+
+    def test_fr07_completion_uses_the_quantities_the_technician_entered(self):
         job = self.job("Cracked screen")
-        before = self.on_hand("QP-SCR-IP13")
-        s.record_part_used(job, self.sam, self.part("QP-SCR-IP13"), 1)
-        self.assertEqual(self.on_hand("QP-SCR-IP13"), before - 1)
-        txn = m.InventoryTxn.objects.filter(part__sku="QP-SCR-IP13", txn_type=m.TXN_USED).get()
-        self.assertEqual((txn.quantity_change, txn.recorded_by), (-1, self.sam))
+        before = self.on_hand("QP-SCR-IP13"), self.on_hand("QP-ADH-KIT")
+        s.complete_repair(job, self.sam, "", [(self.part("QP-SCR-IP13"), 2), (self.part("QP-ADH-KIT"), 0)])
+        self.assertEqual((self.on_hand("QP-SCR-IP13"), self.on_hand("QP-ADH-KIT")), (before[0] - 2, before[1]))
 
     def test_fr07_stock_cannot_go_below_zero(self):
         job = self.job("Cracked screen")
+        adhesive = self.on_hand("QP-ADH-KIT")
         with self.assertRaises(s.RuleError):
-            s.record_part_used(job, self.sam, self.part("QP-SCR-IP13"), 99)
+            s.complete_repair(job, self.sam, "", [(self.part("QP-SCR-IP13"), 99), (self.part("QP-ADH-KIT"), 1)])
+        job.refresh_from_db()
+        self.assertEqual(job.status, m.IN_REPAIR)
+        self.assertEqual((self.on_hand("QP-SCR-IP13"), self.on_hand("QP-ADH-KIT")), (4, adhesive))  # nothing taken
         with self.assertRaises(s.RuleError):
             s.adjust_stock(self.store1, self.part("QP-SCR-IP13"), -99, "count", self.manager)
         self.assertEqual(self.on_hand("QP-SCR-IP13"), 4)
+
+    def test_added_part_in_stock_is_taken_on_completion(self):
+        job = self.job("Cracked screen")
+        charger = self.on_hand("QP-CHG-USBC")
+        self.assertFalse(s.request_part(job, self.sam, self.part("QP-CHG-USBC"), 1))
+        self.assertEqual(job.status, m.IN_REPAIR)
+        self.assertIn("QP-CHG-USBC", [p.sku for p, _ in s.planned_parts(job)])
+        s.complete_repair(job, self.sam, "")
+        self.assertEqual(self.on_hand("QP-CHG-USBC"), charger - 1)
+        self.assertFalse(job.parts.filter(part_status=m.PART_NEEDED).exists())
+
+    def test_parts_received_for_a_waiting_job_are_taken_once_on_completion(self):
+        job = self.job("Green line on display")  # Awaiting Parts: QP-SCR-IP14, none on hand
+        s.adjust_stock(self.store1, self.part("QP-SCR-IP14"), 2, "delivery", self.manager)
+        job.status = m.IN_REPAIR
+        job.save()
+        self.assertEqual(s.planned_parts(job), [(self.part("QP-SCR-IP14"), 1)])
+        s.complete_repair(job, job.assigned_tech, "")
+        self.assertEqual(self.on_hand("QP-SCR-IP14"), 1)
+
+    def test_bench_completion_form_consumes_parts(self):
+        job = self.job("Cracked screen")
+        before = self.on_hand("QP-SCR-IP13")
+        self.login(self.sam)
+        page = self.client.get(reverse("bench_job", args=[job.pk])).content.decode()
+        self.assertNotIn('value="use_part"', page)
+        self.assertIn(f'name="used_{self.part("QP-SCR-IP13").pk}"', page)
+        self.client.post(reverse("bench_job", args=[job.pk]), {
+            "action": "complete", "repair_notes": "done", f"used_{self.part('QP-SCR-IP13').pk}": "1",
+            f"used_{self.part('QP-ADH-KIT').pk}": "1"})
+        job.refresh_from_db()
+        self.assertEqual((job.status, self.on_hand("QP-SCR-IP13")), (m.READY, before - 1))
 
     def test_fr06_out_of_stock_approval_waits_for_parts(self):
         job = self.job("Green line on display")

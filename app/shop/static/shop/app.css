@@ -169,3 +169,11 @@ dl.kv dd { margin: 0; }
   main { padding: 0; }
   .card { border: none; }
 }
+
+/* Folded sections on the bench: extras stay one click away instead of filling the page. */
+details.more { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+details.more > summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; gap: 8px; list-style: none; }
+details.more > summary::before { content: "\25B8"; color: var(--muted); }
+details.more[open] > summary::before { content: "\25BE"; }
+details.more.bare { margin-top: 0; border-top: 0; padding-top: 0; }
+.actions.split { margin-top: 20px; justify-content: space-between; }

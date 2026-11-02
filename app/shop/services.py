@@ -323,49 +323,77 @@ def record_decision(job, user, approved, note=""):
 
 # 4.0 Record Repair Work (FR06, FR07, UC-04) ------------------------------------
 
-@transaction.atomic
-def record_part_used(job, tech, part, quantity):
-    """Deducts the store's stock automatically; stock never goes below zero (FR07)."""
-    _require_own_job(job, tech)
-    if job.status != m.IN_REPAIR:
-        raise RuleError("Parts are recorded while the job is In Repair.")
-    if quantity <= 0:
-        raise RuleError("Quantity must be at least 1.")
-    stock = m.StorePartStock.objects.select_for_update().filter(store=job.store, part=part).first()
-    if not stock or stock.quantity_on_hand < quantity:
-        raise RuleError(f"Only {stock.quantity_on_hand if stock else 0} of {part} in stock. "
-                        "Request the part instead.")
-    m.StorePartStock.objects.filter(store=job.store, part=part).update(
-        quantity_on_hand=stock.quantity_on_hand - quantity)
-    m.InventoryTxn.objects.create(store=job.store, part=part, recorded_by=tech, txn_type=m.TXN_USED,
-                                  quantity_change=-quantity, reason=f"Used on {job.ticket_number}")
-    needed = job.parts.filter(part=part, part_status=m.PART_NEEDED).first()
-    if needed:
-        needed.part_status, needed.quantity, needed.recorded_at = m.PART_USED, quantity, timezone.now()
-        needed.save()
-    else:
-        m.JobPart.objects.create(repair_job=job, part=part, quantity=quantity, part_status=m.PART_USED)
+def planned_parts(job):
+    """Parts the repair will take from stock when it is marked ready, as (Part, quantity): every approved
+    quote's lines plus parts requested on the bench, less anything already recorded as used."""
+    plan = {}
+    for quote in job.quotes.filter(decision=m.Q_APPROVED):
+        for line in quote.lines.select_related("part"):
+            part, qty = plan.get(line.part_id, (line.part, 0))
+            plan[line.part_id] = (part, qty + line.quantity)
+    for jp in job.parts.filter(part_status=m.PART_NEEDED).select_related("part"):
+        if jp.part_id not in plan:  # shortages of quoted parts are already counted in the quote
+            plan[jp.part_id] = (jp.part, jp.quantity)
+    for jp in job.parts.filter(part_status=m.PART_USED):
+        if jp.part_id in plan:
+            part, qty = plan[jp.part_id]
+            plan[jp.part_id] = (part, qty - jp.quantity)
+    return sorted(((p, q) for p, q in plan.values() if q > 0), key=lambda pq: pq[0].part_name)
 
 
 @transaction.atomic
 def request_part(job, tech, part, quantity):
-    """A technician requests a part that is out of stock; the job waits (owner, Oct 23 #3)."""
+    """Adds a part the quote did not cover. In stock, it is taken when the job is marked ready; out of
+    stock, the job waits in Awaiting Parts until a Manager receives it (owner, Oct 23 #3)."""
     _require_own_job(job, tech)
     if job.status != m.IN_REPAIR:
         raise RuleError("Parts are requested while the job is In Repair.")
     if quantity <= 0:
         raise RuleError("Quantity must be at least 1.")
     m.JobPart.objects.create(repair_job=job, part=part, quantity=quantity, part_status=m.PART_NEEDED)
+    stock = stock_for(job.store, part)
+    if stock and stock.quantity_on_hand >= quantity:
+        m.JobStatusHistory.objects.create(repair_job=job, status=job.status, changed_by=tech,
+                                          note=f"Added {part} x{quantity}")
+        return False
     set_status(job, m.AWAITING_PARTS, tech, f"Requested {part} x{quantity}")
+    return True
 
 
-def complete_repair(job, tech, repair_notes):
+@transaction.atomic
+def complete_repair(job, tech, repair_notes, parts=None):
+    """Marks the repair ready and takes its parts off the store's stock in one step (FR07; Kyle,
+    2026-11-02). parts: (Part, quantity) actually used; None uses planned_parts(job). Stock never
+    goes below zero, so a shortfall blocks completion and nothing is deducted."""
     _require_own_job(job, tech)
     if job.status != m.IN_REPAIR:
         raise RuleError("Only a job In Repair can be marked ready.")
+    if parts is None:
+        parts = planned_parts(job)
+    else:
+        if any(q < 0 for _, q in parts):
+            raise RuleError("Part quantities cannot be negative.")
+        totals = {}
+        for p, q in parts:
+            totals[p] = totals.get(p, 0) + q
+        parts = [(p, q) for p, q in totals.items() if q]
+    rows = {s.part_id: s for s in m.StorePartStock.objects.select_for_update().filter(
+        store=job.store, part__in=[p for p, _ in parts])}
+    short = [f"{p} (need {q}, {rows[p.pk].quantity_on_hand if p.pk in rows else 0} in stock)"
+             for p, q in parts if (rows[p.pk].quantity_on_hand if p.pk in rows else 0) < q]
+    if short:
+        raise RuleError("Not enough stock: " + "; ".join(short) + ". Request the part instead.")
+    for part, qty in parts:
+        m.StorePartStock.objects.filter(store=job.store, part=part).update(
+            quantity_on_hand=rows[part.pk].quantity_on_hand - qty)
+        m.InventoryTxn.objects.create(store=job.store, part=part, recorded_by=tech, txn_type=m.TXN_USED,
+                                      quantity_change=-qty, reason=f"Used on {job.ticket_number}")
+        m.JobPart.objects.create(repair_job=job, part=part, quantity=qty, part_status=m.PART_USED)
+    job.parts.filter(part_status=m.PART_NEEDED).delete()
     job.repair_notes = (repair_notes or "").strip() or job.repair_notes
     job.completed_at = timezone.now()
-    set_status(job, m.READY, tech, "Repair complete")
+    used = ", ".join(f"{p} x{q}" for p, q in parts)
+    set_status(job, m.READY, tech, "Repair complete" + (f"; parts used: {used}" if used else ""))
 
 
 # 5.0 Send Pickup Notification (FR12, UC-05) ------------------------------------
