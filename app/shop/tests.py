@@ -544,12 +544,13 @@ class NotificationTests(Base):
         self.assertEqual(mail.outbox[0].to, ["n.kowalski@example.com"])
         self.assertEqual((job.email_status, job.email_sent_by), ("Sent", self.desk))
 
-    def test_fr12_technician_may_send_without_seeing_address(self):
-        """Owner answer Oct 23 #1, approved for the build on 2026-10-28 (supersedes NFR05)."""
+    def test_fr12_technician_may_send_pickup_notification(self):
+        """Owner answer Oct 23 #1, approved for the build on 2026-10-28 (supersedes NFR05).
+        Technicians also see customer contact since Kyle's change of 2026-11-02."""
         job = self.job("Will not charge")
         self.login(self.jordan)
         page = self.client.get(reverse("bench_job", args=[job.pk])).content.decode()
-        self.assertNotIn("n.kowalski@example.com", page)
+        self.assertIn("n.kowalski@example.com", page)
         self.client.post(reverse("job_notify", args=[job.pk]))
         job.refresh_from_db()
         self.assertEqual(job.email_sent_by, self.jordan)
