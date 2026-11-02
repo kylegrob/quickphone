@@ -107,6 +107,9 @@ tr.sel td { background: var(--sel); }
 .table-card { padding: 8px 18px; overflow-x: auto; }
 .sku { font-family: var(--mono); font-size: 15px; white-space: nowrap; }
 .nowrap { flex-wrap: nowrap !important; white-space: nowrap; }
+/* Side panel stays in view while the main column scrolls; scrolls itself if taller than the window. */
+.sticky-side { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; }
+.sticky-side > .btn:last-child { position: sticky; bottom: 0; box-shadow: 0 -12px 0 var(--bg); }
 .grid.wide-main { grid-template-columns: minmax(0, 1fr) 300px; }
 .part-sub { color: var(--muted); font-size: 14px; }
 
@@ -162,7 +165,7 @@ dl.kv dd { margin: 0; }
 .login { max-width: 460px; margin: 80px auto; }
 .training { background: #fff7ed; color: #9a3412; text-align: center; padding: 6px; font-size: 14px; }
 
-@media (max-width: 1100px) { .grid, .grid-left { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .grid, .grid-left { grid-template-columns: 1fr; } .sticky-side { position: static; max-height: none; overflow: visible; } .sticky-side > .btn:last-child { position: static; box-shadow: none; } }
 @media print {
   .top, .training, .no-print, .msgs { display: none !important; }
   body { background: #fff; }
