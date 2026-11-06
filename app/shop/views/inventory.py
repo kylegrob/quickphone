@@ -114,6 +114,8 @@ def part_edit(request, pk=None):
     })
 
 
+MAX_IMPORT_BYTES = 1024 * 1024  # a parts list is a few hundred KB at most (F11, 2026-11-06)
+
 IMPORT_COLUMNS = ["sku", "part_name", "device_model", "grade", "standard_cost", "supplier",
                   "quantity_on_hand", "reorder_point"]
 
@@ -124,6 +126,9 @@ def import_csv(request):
     invalid nothing is imported and every bad row is listed, so no data is lost silently."""
     report = None
     if request.method == "POST" and request.FILES.get("file"):
+        if request.FILES["file"].size > MAX_IMPORT_BYTES:
+            messages.error(request, "The file is larger than 1 MB. Split it into smaller files.")
+            return redirect("inventory_import")
         text = request.FILES["file"].read().decode("utf-8-sig", errors="replace")
         reader = csv.DictReader(io.StringIO(text))
         missing = [c for c in IMPORT_COLUMNS if c not in (reader.fieldnames or [])]

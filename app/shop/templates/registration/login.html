@@ -4,7 +4,7 @@
 <div class="card login">
   <h1>Sign in</h1>
   <p class="muted">Quick Phone Repair Management</p>
-  {% if form.errors %}<div class="alert-box">Email or password is not correct, or the account is inactive.</div>{% endif %}
+  {% if form.locked %}<div class="alert-box">{{ form.non_field_errors.0 }}</div>{% elif form.errors %}<div class="alert-box">Email or password is not correct, or the account is inactive.</div>{% endif %}
   <form method="post">{% csrf_token %}
     <label for="id_username">Email</label>
     <input type="email" name="username" id="id_username" autocomplete="username" required autofocus value="{{ form.username.value|default:'' }}">

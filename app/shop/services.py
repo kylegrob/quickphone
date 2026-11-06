@@ -460,7 +460,9 @@ def release_device(job, user, id_verified):
     if job.status == m.READY and job.amount_paid < (job.final_cost or 0):
         raise RuleError(f"Record payment first: ${(job.final_cost or 0) - job.amount_paid:.2f} still due.")
     job.id_verified_flag, job.picked_up_at = True, timezone.now()
-    set_status(job, m.CLOSED, user, "Released to customer")
+    # The passcode is needed only while the device is in the shop; drop it at release (F6, 2026-11-06).
+    had_passcode, job.device_passcode = bool(job.device_passcode), None
+    set_status(job, m.CLOSED, user, "Released to customer" + ("; passcode deleted" if had_passcode else ""))
 
 
 # 7.0 Process Purchase Orders (FR09, FR10, UC-08 to UC-10) -----------------------

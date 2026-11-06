@@ -8,12 +8,12 @@ This is the Sprint 4 working system, built to run a training session. It is a Dj
 2. Create the database and a login. Choose your own password and keep it out of this repository:
    `psql -U postgres -c "CREATE ROLE quickphone LOGIN PASSWORD '<your password>';"` then `psql -U postgres -c "CREATE DATABASE quickphone OWNER quickphone;"`
 3. From the repository root: `python -m venv .venv` and `.venv\Scripts\pip install -r app\requirements.txt`.
-4. Set `QP_DB_PASSWORD` to that password in your shell (PowerShell: `$env:QP_DB_PASSWORD = '<your password>'`). The other settings default to a local database called `quickphone`; see `quickphone/settings.py` for every `QP_` variable.
+4. Set `QP_DB_PASSWORD` to that password in your shell (PowerShell: `$env:QP_DB_PASSWORD = '<your password>'`), and `$env:QP_DEBUG = '1'` on a training machine. Debug is off unless `QP_DEBUG=1`, and with debug off the app refuses to start until `QP_SECRET_KEY` and `QP_PASSCODE_KEY` are set (see Security below). The other settings default to a local database called `quickphone`; see `quickphone/settings.py` for every `QP_` variable.
 5. `.venv\Scripts\python app\manage.py migrate`
 
 ## Before each training session
 
-`.venv\Scripts\python app\manage.py seed_training --yes` wipes the database and reloads the sample data, so every session starts from the same state. Then start the server with `.venv\Scripts\python app\manage.py runserver` and open http://localhost:8000.
+With `QP_DEBUG=1` set, `.venv\Scripts\python app\manage.py seed_training --yes` wipes the database (it refuses when debug is off, so it cannot wipe a live system) and reloads the sample data, so every session starts from the same state. Then start the server with `.venv\Scripts\python app\manage.py runserver` and open http://localhost:8000.
 
 Every training account uses the password in `TRAINING_PASSWORD` in `shop/management/commands/seed_training.py`. Hand it out on paper during the session; it exists only for the sample data. Pickup emails are written to `app/sent_emails/` rather than sent, so trainees can open the file and read what the customer would receive.
 
@@ -70,7 +70,11 @@ Still to confirm with the owner: store hours and appointment slot length (placeh
 
 ## Tests
 
-`$env:QP_DB_ENGINE='sqlite'; .venv\Scripts\python app\manage.py test shop` runs 38 tests named after the catalog's acceptance checks, including the security cases: a Technician approving an order, a Front Desk user opening inventory, an unpaid release, stock below zero, and a Manager creating an Owner account. `QP_DB_ENGINE=sqlite` exists only so tests and demos can run on a machine without PostgreSQL.
+`$env:QP_DB_ENGINE='sqlite'; .venv\Scripts\python app\manage.py test shop` runs 94 tests named after the catalog's acceptance checks, including the security cases: a Technician approving an order, a Front Desk user opening inventory, an unpaid release, stock below zero, a Manager creating an Owner account, and the `SecurityTests` class (sign-in lockout, weak passwords, other-store records by ID, CSRF, settings that refuse to start without keys). `QP_DB_ENGINE=sqlite` exists only so tests and demos can run on a machine without PostgreSQL.
+
+## Security (2026-11-06)
+
+See `docs/sprint-4/drafts/security-analysis.md` for assets, threats, controls and residual risks. A live deployment sets, at minimum, `QP_SECRET_KEY` (50+ random characters), `QP_PASSCODE_KEY` (a Fernet key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`), `QP_ALLOWED_HOSTS` and the database and SMTP variables, and serves the app over HTTPS. Keep the passcode key backed up apart from the database: without it no stored passcode can be read. With debug off, cookies are HTTPS-only, HTTP is redirected (`QP_SSL_REDIRECT`), HSTS starts at 30 days (`QP_HSTS_SECONDS`), and `QP_BEHIND_PROXY=1` trusts a proxy's `X-Forwarded-Proto`. Sessions end after 30 idle minutes (`QP_SESSION_MINUTES`) or when the browser closes. Five failed sign-ins lock that account for 15 minutes (`QP_LOGIN_MAX_FAILURES`, `QP_LOGIN_LOCK_MINUTES`); the count lives in server memory, so a multi-process server needs a shared cache. New passwords need 10+ characters and cannot be common, all digits, or close to the person's name or email. A device's passcode is deleted when the device is released.
 
 ## Where things are
 
@@ -79,6 +83,7 @@ Still to confirm with the owner: store hours and appointment slot length (placeh
 | `shop/models.py` | The 17 tables, named as in the physical ERD |
 | `shop/services.py` | Every business rule, one function per workflow step (DFD 1.0 to 9.0) |
 | `shop/permissions.py` | Who may do what (NFR01), checked on the server |
+| `shop/auth.py` | Sign-in lockout after repeated failures |
 | `shop/views/` | Screens: `desk.py` Front Desk, `bench.py` Technician, `inventory.py` Manager, `records.py` Owner and records |
 | `shop/templates/shop/` | Page layouts (Prototype A) |
 | `shop/tests.py` | Automated tests |

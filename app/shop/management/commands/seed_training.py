@@ -9,6 +9,7 @@ recorded here, in the project's seed file, not in any document or chat.
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.management import BaseCommand, CommandError, call_command
 from django.db import transaction
 from django.utils import timezone
@@ -74,6 +75,10 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         if not options["yes"]:
             raise CommandError("This deletes every record. Run again with --yes to confirm.")
+        if not settings.DEBUG:
+            # A live system runs with debug off; never wipe it with sample data (F9, 2026-11-06).
+            raise CommandError("Refused: debug is off, so this looks like a live system. "
+                               "Training machines set QP_DEBUG=1.")
         call_command("flush", interactive=False, verbosity=0)
         with transaction.atomic():
             self.load()

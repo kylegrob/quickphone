@@ -735,3 +735,160 @@ class AccessibilityMarkupTests(Base):
         self.login(self.desk)
         html = self.client.get(reverse("checkin")).content.decode()
         self.assertIn('aria-live="polite"', html)
+
+
+class SecurityTests(Base):
+    """Controls from the security analysis (docs/sprint-4/drafts/security-analysis.md, 2026-11-06)."""
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        cache.clear()
+        self.store2 = m.Store.objects.get(store_name="Store 2")
+
+    def _settings_in_new_process(self, env, expr):
+        """Loads settings.py fresh, outside the test runner, with only the given QP_ variables."""
+        import os
+        import subprocess
+        import sys
+        from django.conf import settings
+        clean = {k: v for k, v in os.environ.items() if not k.startswith("QP_")}
+        clean.update(env, DJANGO_SETTINGS_MODULE="quickphone.settings")
+        code = f"import django; django.setup(); from django.conf import settings as s; print({expr})"
+        return subprocess.run([sys.executable, "-c", code], cwd=settings.BASE_DIR, env=clean,
+                              capture_output=True, text=True)
+
+    def _live_env(self):
+        from cryptography.fernet import Fernet
+        return {"QP_DB_ENGINE": "sqlite", "QP_SECRET_KEY": "k" * 60, "QP_PASSCODE_KEY": Fernet.generate_key().decode()}
+
+    def _store2_job(self):
+        desk2 = m.Employee.objects.get(email="desk2@quickphone.test")
+        device = m.Device.objects.filter(customer__phone__contains="0142").first()
+        return s.check_in(desk2, self.store2, device, "Store 2 only")
+
+    # F1: fail closed
+    def test_f1_live_settings_refuse_to_start_without_keys(self):
+        r = self._settings_in_new_process({"QP_DB_ENGINE": "sqlite"}, "s.DEBUG")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("QP_SECRET_KEY", r.stderr)
+        r = self._settings_in_new_process({"QP_DB_ENGINE": "sqlite", "QP_SECRET_KEY": "k" * 60}, "s.DEBUG")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("QP_PASSCODE_KEY", r.stderr)
+
+    def test_f1_debug_is_off_unless_asked_for(self):
+        r = self._settings_in_new_process(self._live_env(), "s.DEBUG")
+        self.assertEqual(r.stdout.strip(), "False", r.stderr)
+
+    # F2: HTTPS
+    def test_f2_live_settings_use_https_only_cookies(self):
+        r = self._settings_in_new_process(
+            self._live_env(), "s.SESSION_COOKIE_SECURE, s.CSRF_COOKIE_SECURE, s.SECURE_SSL_REDIRECT, s.SECURE_HSTS_SECONDS > 0")
+        self.assertEqual(r.stdout.strip(), "True True True True", r.stderr)
+
+    # F3: sessions
+    def test_f3_session_ends_after_inactivity_and_browser_close(self):
+        from django.conf import settings
+        self.assertLessEqual(settings.SESSION_COOKIE_AGE, 60 * 60)
+        self.assertTrue(settings.SESSION_SAVE_EVERY_REQUEST)
+        self.assertTrue(settings.SESSION_EXPIRE_AT_BROWSER_CLOSE)
+
+    # F4: sign-in
+    def test_f4_account_locks_after_repeated_failures(self):
+        from django.conf import settings
+        for _ in range(settings.LOGIN_MAX_FAILURES):
+            self.client.post(reverse("login"), {"username": "desk1@quickphone.test", "password": "wrong-guess"})
+        r = self.client.post(reverse("login"), {"username": "desk1@quickphone.test", "password": TRAINING_PASSWORD})
+        self.assertContains(r, "Too many failed sign-ins")
+        self.assertNotIn("_auth_user_id", self.client.session)
+        r = self.client.post(reverse("login"), {"username": "sam@quickphone.test", "password": TRAINING_PASSWORD})
+        self.assertEqual(r.status_code, 302)  # other accounts are not affected
+
+    def test_f4_successful_sign_in_resets_the_count(self):
+        from .auth import failures
+        for _ in range(2):
+            self.client.post(reverse("login"), {"username": "desk1@quickphone.test", "password": "wrong-guess"})
+        self.assertEqual(failures("desk1@quickphone.test"), 2)
+        self.client.post(reverse("login"), {"username": "desk1@quickphone.test", "password": TRAINING_PASSWORD})
+        self.assertEqual(failures("desk1@quickphone.test"), 0)
+
+    def test_f4_common_numeric_or_short_password_is_refused(self):
+        self.login(self.manager)
+        for i, weak in enumerate(["password123", "12345678901", "short1"]):
+            self.client.post(reverse("staff_new"), {
+                "first_name": "Weak", "last_name": "Pass", "email": f"weak{i}@quickphone.test",
+                "role": m.FRONT_DESK, "store_id": self.store1.pk, "password": weak})
+            self.assertFalse(m.Employee.objects.filter(email=f"weak{i}@quickphone.test").exists(), weak)
+
+    # F6: passcode retention
+    def test_f6_passcode_deleted_when_device_released(self):
+        from .crypto import encrypt_passcode
+        job = self.job("Will not charge")
+        job.device_passcode = encrypt_passcode("2468")
+        job.save()
+        s.record_payment(job, self.desk, job.final_cost, "Card")
+        s.release_device(job, self.desk, True)
+        job.refresh_from_db()
+        self.assertIsNone(job.device_passcode)
+        self.assertIn("passcode deleted", job.history.latest("history_id").note)
+
+    # F9: training seed
+    def test_f9_seed_refuses_when_debug_is_off(self):
+        from django.core.management import CommandError, call_command
+        jobs = m.RepairJob.objects.count()
+        with self.assertRaises(CommandError):
+            call_command("seed_training", yes=True)
+        self.assertEqual(m.RepairJob.objects.count(), jobs)
+
+    # F11: upload size
+    def test_f11_oversized_import_is_refused(self):
+        from .views.inventory import MAX_IMPORT_BYTES
+        self.login(self.manager)
+        header = b"sku,part_name,device_model,grade,standard_cost,supplier,quantity_on_hand,reorder_point\n"
+        f = io.BytesIO(header + b"x" * MAX_IMPORT_BYTES)
+        f.name = "parts.csv"
+        r = self.client.post(reverse("inventory_import"), {"file": f}, follow=True)
+        self.assertContains(r, "larger than 1 MB")
+
+    # G1: controls that had no test
+    def test_g1_other_store_records_cannot_be_opened_by_id(self):
+        job = self._store2_job()
+        self.login(self.desk)
+        self.assertEqual(self.client.get(reverse("job_detail", args=[job.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("job_ticket", args=[job.pk])).status_code, 404)
+        self.client.post(reverse("job_detail", args=[job.pk]), {"action": "release", "id_verified": "on"})
+        job.refresh_from_db()
+        self.assertNotEqual(job.status, m.CLOSED)
+        part = m.Part.objects.filter(default_supplier__isnull=False).first()
+        manager2 = m.Employee.objects.get(email="manager2@quickphone.test")
+        po = s.add_to_po(self.store2, part, 1, manager2)
+        self.login(self.manager)
+        self.assertEqual(self.client.get(reverse("po_detail", args=[po.pk])).status_code, 404)
+
+    def test_g1_technician_cannot_open_another_technicians_job(self):
+        job = m.RepairJob.objects.filter(assigned_tech=self.jordan).exclude(status=m.CLOSED).first()
+        self.login(self.sam)
+        self.assertEqual(self.client.get(reverse("bench_job", args=[job.pk])).status_code, 404)
+        self.assertEqual(self.client.post(reverse("bench_job", args=[job.pk]), {"action": "start"}).status_code, 404)
+
+    def test_g1_staff_cannot_change_own_role(self):
+        self.login(self.manager)
+        self.client.post(reverse("staff_edit", args=[self.manager.pk]), {
+            "first_name": self.manager.first_name, "last_name": self.manager.last_name, "email": self.manager.email,
+            "role": m.TECHNICIAN, "store_id": self.store1.pk, "active_flag": "on"})
+        self.manager.refresh_from_db()
+        self.assertEqual(self.manager.role, m.MANAGER)
+
+    def test_g1_store_switch_does_not_redirect_off_site(self):
+        self.login(self.owner)
+        r = self.client.post(reverse("switch_store"), {"store_id": self.store2.pk, "next": "https://evil.example/"})
+        self.assertNotIn("evil.example", r["Location"])
+
+    def test_g1_form_post_without_csrf_token_is_refused(self):
+        from django.test import Client
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.desk)
+        job = self.job("Will not charge")
+        r = client.post(reverse("job_detail", args=[job.pk]), {"action": "payment", "amount": "1", "method": "Cash"})
+        self.assertEqual(r.status_code, 403)
+        self.assertFalse(m.Payment.objects.filter(repair_job=job).exists())
