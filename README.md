@@ -4,8 +4,6 @@ MIS 4173 (Systems Analysis, Design and Development), Fall 2026, Professor John D
 
 **Team:** Kyle Robertson, Ehsanullah Pardisi, Bara Abusamhan, Leonard Mann.
 
-> Client information in this repository is confidential under the Student Consulting MOU. Keep the repository private and share it only with the team and course staff.
-
 ## Repository layout
 
 ```
