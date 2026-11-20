@@ -10,6 +10,7 @@ MIS 4173 (Systems Analysis, Design and Development), Fall 2026, Professor John D
 README.md               You are here
 AGENTS.md               Instructions for AI assistants (Claude, ChatGPT, Copilot ...)
 CLAUDE.md               Points Claude Code at AGENTS.md
+design/                 System request, requirements, use cases, DFDs, ERDs, specification
 app/                    Sprint 4 working system (Django + PostgreSQL); see app/README.md
 tools/extract_text.py   Regenerates docs/_text/
 ```
