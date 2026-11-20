@@ -19,7 +19,6 @@ docs/
   sprint-3/drafts/      Revised work not yet final (replaces older versions when submitted)
   _text/                Auto-generated Markdown copies of every .docx/.pptx/.xlsx
 app/                    Sprint 4 working system (Django + PostgreSQL); see app/README.md
-feedback/               Professor and client feedback, one file per sprint
 tools/extract_text.py   Regenerates docs/_text/
 ```
 

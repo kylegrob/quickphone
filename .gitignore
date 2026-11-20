@@ -20,3 +20,5 @@ __pycache__/
 /app/dev.sqlite3
 /app/sent_emails/
 /app/staticfiles/
+/feedback/
+/submitted/
