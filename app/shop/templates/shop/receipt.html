@@ -1,0 +1,32 @@
+{% extends "shop/base.html" %}
+{% block title %}Receipt {{ job.ticket_number }}{% endblock %}
+{% block content %}
+<div class="page-head no-print">
+  <div><h1>Pickup receipt</h1></div>
+  <div class="actions"><button class="btn primary" onclick="window.print()">Print</button><a class="btn" href="{% url 'job_detail' job.pk %}">Open job</a></div>
+</div>
+<div class="card" style="max-width:560px">
+  <div class="ticket">
+    <div class="kind"><span>PICKUP RECEIPT</span><span>{{ job.store.store_name|upper }}</span></div>
+    <div class="num">{{ job.ticket_number }}</div>
+    <div><strong>{{ job.customer }}</strong></div>
+    <div>{{ job.device }} · {{ job.reported_issue }}</div>
+    <div class="muted small">Checked in {{ job.check_in_at|date:"M j, Y g:i A" }}</div>
+    <dl class="kv" style="margin:12px 0">
+      {% for line in lines %}<dt>{{ line.part }} x{{ line.quantity }}</dt><dd>${{ line.line_total|floatformat:2 }}</dd>{% endfor %}
+      {% if job.final_cost is not None %}
+        <dt>Labor</dt><dd>${{ labor|floatformat:2 }}</dd>
+        <dt><strong>Repair total</strong></dt><dd><strong>${{ job.final_cost|floatformat:2 }}</strong></dd>
+      {% else %}
+        <dt><strong>Repair total</strong></dt><dd><strong>Not repaired</strong></dd>
+      {% endif %}
+      {% for p in job.payments.all %}<dt>Paid {{ p.paid_at|date:"M j" }}, {{ p.method }}</dt><dd>${{ p.amount|floatformat:2 }}</dd>{% endfor %}
+      {% if job.final_cost is not None %}<dt><strong>Still due</strong></dt><dd><strong>${{ due|floatformat:2 }}</strong></dd>{% endif %}
+    </dl>
+    <p class="small">I have received this device from {{ job.store.store_name }}.</p>
+    <p style="margin-top:36px;border-top:1px solid #000;padding-top:4px">Customer signature</p>
+    <p style="margin-top:28px;border-top:1px solid #000;padding-top:4px">Date</p>
+    <p class="small">{{ job.store.store_name }}, {{ job.store.address }}, {{ job.store.phone }}</p>
+  </div>
+</div>
+{% endblock %}

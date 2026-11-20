@@ -1,12 +1,21 @@
 {% extends "shop/base.html" %}
-{% block title %}Check in{% endblock %}
-{% block content %}
+{% block title %}Check in{% endblock %}{% block content %}
 <div class="page-head">
   <div><h1>Appointments and check-in</h1></div>
 </div>
 
 <div class="grid">
 <div class="stack">
+  {% if awaiting_answer %}
+  <section class="card" aria-labelledby="answers">
+    <h2 id="answers">Waiting for the customer's answer</h2>
+    {% for j in awaiting_answer %}
+      <div class="item"><div class="grow"><strong><span class="mono">{{ j.ticket_number }}</span> · {{ j.device }}</strong>
+        <div class="sub">{{ j.device.customer }} · {{ j.device.customer.phone|default:j.device.customer.email }}{% if j.has_approved_quote %} · additional repair{% endif %}</div></div>
+        <a class="btn small dark" href="{% url 'job_detail' j.pk %}">Record answer</a></div>
+    {% endfor %}
+  </section>
+  {% endif %}
   <section class="card" aria-labelledby="appts">
     <div class="card-head">
       <div><h2 id="appts">Drop-off appointments, {{ day|date:"l, M j" }}</h2></div>
@@ -21,7 +30,7 @@
     {% for a in appointments %}
       <div class="item {% if appointment.pk == a.pk %}sel{% endif %}">
         <div class="time">{{ a.scheduled_at|time:"g:i A" }}</div>
-        <div class="grow"><strong>{{ a.customer }}</strong><div class="sub">{{ a.customer.phone }} · Tech: {{ a.technician.first_name|default:"open" }}</div></div>
+        <div class="grow"><strong>{{ a.customer }}</strong><div class="sub">{% if a.repair_type %}{{ a.repair_type }}, {% endif %}{{ a.duration_minutes }} min · {{ a.customer.phone|default:a.customer.email }} · Tech: {{ a.technician.first_name|default:"open" }}</div></div>
         <a class="btn small" href="{% url 'appointment_edit' a.pk %}">Reschedule</a>
         <form method="post" action="{% url 'appointment_cancel' a.pk %}" class="inline" onsubmit="return confirm('Cancel this appointment?')">{% csrf_token %}<button class="btn small danger">Cancel</button></form>
         {% if appointment.pk == a.pk %}<span class="pill approved">Linked to this check-in</span>
@@ -36,29 +45,30 @@
     <h2 id="cust">Customer</h2>
     {% if customer %}
       <div class="picked" style="margin-top:12px">
-        <div><strong>{{ customer }}</strong><br>{{ customer.phone }}{% if customer.email %} · {{ customer.email }}{% else %} · no email on file{% endif %}
+        <div><strong>{{ customer }}</strong><br>{% if customer.phone %}{{ customer.phone }} · {% else %}no phone on file · {% endif %}{{ customer.email|default:"no email on file" }}
         {% with customer.devices.all as devs %}{% if devs %}<br><span class="muted">Devices on file: {{ devs|join:", " }}</span>{% endif %}{% endwith %}</div>
         <span class="pill">Selected</span>
       </div>
       {% if not appointment %}<p><a href="{% url 'checkin' %}">Choose a different customer</a></p>{% endif %}
     {% else %}
       <form method="get">
-        <label for="phone">Search by phone number</label>
-        <div class="inline-form"><input type="tel" id="phone" name="phone" value="{{ phone }}" placeholder="(919) 555-0142" style="flex:1">
+        <label for="phone">Search by phone or email</label>
+        <div class="inline-form"><input type="search" id="phone" name="phone" value="{{ phone }}" placeholder="(919) 555-0142 or name@example.com" style="flex:1">
         <button class="btn" type="submit">Find customer</button></div>
       </form>
       {% if phone %}
         {% for c in matches %}
-          <div class="item"><div class="grow"><strong>{{ c }}</strong><div class="sub">{{ c.phone }}{% if c.devices.all %} · {{ c.devices.all|join:", " }}{% endif %}</div></div>
+          <div class="item"><div class="grow"><strong>{{ c }}</strong><div class="sub">{{ c.phone|default:c.email }}{% if c.devices.all %} · {{ c.devices.all|join:", " }}{% endif %}</div></div>
           <a class="btn small dark" href="?customer={{ c.pk }}">Select</a></div>
-        {% empty %}<p class="muted">No customer with that phone.</p>{% endfor %}
+        {% empty %}<p class="muted">No customer with that phone or email.</p>{% endfor %}
       {% endif %}
       <h3>New customer</h3>
+      <p class="muted">Enter a phone number, an email, or both. The pickup notification goes to the email.</p>
       <div class="row">
         <div><label for="first_name">First name</label><input form="checkin-form" type="text" id="first_name" name="first_name" value="{{ post.first_name }}" maxlength="40"{% if "first_name" in invalid %} aria-invalid="true" aria-describedby="page-messages"{% endif %}></div>
         <div><label for="last_name">Last name</label><input form="checkin-form" type="text" id="last_name" name="last_name" value="{{ post.last_name }}" maxlength="40"{% if "last_name" in invalid %} aria-invalid="true" aria-describedby="page-messages"{% endif %}></div>
-        <div><label for="new_phone">Phone</label><input form="checkin-form" type="tel" id="new_phone" name="phone" value="{{ post.phone|default:phone }}" maxlength="20"{% if "phone" in invalid %} aria-invalid="true" aria-describedby="page-messages"{% endif %}></div>
-        <div><label for="email">Email (for the pickup notification)</label><input form="checkin-form" type="email" id="email" name="email" value="{{ post.email }}" maxlength="120"></div>
+        <div><label for="new_phone">Phone</label><input form="checkin-form" type="tel" id="new_phone" name="phone" value="{% if post %}{{ post.phone }}{% elif "@" not in phone %}{{ phone }}{% endif %}" maxlength="20"{% if "phone" in invalid %} aria-invalid="true" aria-describedby="page-messages"{% endif %}></div>
+        <div><label for="email">Email</label><input form="checkin-form" type="email" id="email" name="email" value="{% if post %}{{ post.email }}{% elif "@" in phone %}{{ phone }}{% endif %}" maxlength="120"{% if "email" in invalid %} aria-invalid="true" aria-describedby="page-messages"{% endif %}></div>
       </div>
     {% endif %}
   </section>
@@ -69,10 +79,11 @@
     {% if customer and customer.devices.all %}
       <span class="label">Device</span>
       <div class="pick">
-        {% for d in customer.devices.all %}<label><input type="radio" name="device_id" value="{{ d.pk }}" {% if forloop.first %}checked{% endif %}><strong>{{ d }}</strong>{{ d.device_type|default:"" }}{% if d.serial_or_imei %} · {{ d.serial_or_imei }}{% endif %}</label>{% endfor %}
-        <label><input type="radio" name="device_id" value=""><strong>Another device</strong>Pick it below</label>
+        {% for d in customer.devices.all %}<label><input type="radio" name="device_id" value="{{ d.pk }}" {% if forloop.first and not other_device %}checked{% endif %}><strong>{{ d }}</strong>{{ d.device_type|default:"" }}{% if d.serial_or_imei %} · {{ d.serial_or_imei }}{% endif %}</label>{% endfor %}
+        <label><input type="radio" name="device_id" value="" id="another-device" {% if other_device %}checked{% endif %}><strong>Another device</strong>Pick it below</label>
       </div>
     {% endif %}
+    <div id="device-picker">
     <label for="device_model">{% if customer and customer.devices.all %}Another device: pick it from the list{% else %}Device{% endif %}</label>
     <select id="device_model" name="device_model_id"{% if "device_model" in invalid %} aria-invalid="true" aria-describedby="page-messages"{% endif %}>
       <option value="">Choose brand and model</option>
@@ -88,6 +99,7 @@
         <div><label for="new_model">Model</label><input type="text" id="new_model" name="new_model" value="{{ post.new_model }}" maxlength="60" placeholder="iPhone 16"></div>
       </div>
     </details>
+    </div>
     <label for="serial">Serial or IMEI (optional)</label>
     <input type="text" id="serial" name="serial_or_imei" value="{{ post.serial_or_imei }}" maxlength="40">
     <label for="issue">Reported problem</label>
@@ -129,4 +141,21 @@
   <button class="btn primary block" type="submit" form="checkin-form">Create job and print ticket and tag</button>
 </aside>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+// With devices on file, the brand and model list shows only when "Another device" is ticked.
+// Hidden fields are disabled so they are not sent with the form.
+(function () {
+  const other = document.getElementById('another-device');
+  const picker = document.getElementById('device-picker');
+  if (!other || !picker) return;
+  function sync() {
+    picker.hidden = !other.checked;
+    picker.querySelectorAll('input, select').forEach(el => { el.disabled = !other.checked; });
+  }
+  document.querySelectorAll('input[name=device_id]').forEach(r => r.addEventListener('change', sync));
+  sync();
+})();
+</script>
 {% endblock %}

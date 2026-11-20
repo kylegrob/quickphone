@@ -4,14 +4,26 @@
 <div class="card login">
   <h1>Sign in</h1>
   <p class="muted">Quick Phone Repair Management</p>
-  {% if form.locked %}<div class="alert-box">{{ form.non_field_errors.0 }}</div>{% elif form.errors %}<div class="alert-box">Email or password is not correct, or the account is inactive.</div>{% endif %}
+  {% if form.non_field_errors %}<div class="alert-box" role="alert">{{ form.non_field_errors.0 }}</div>{% elif form.errors %}<div class="alert-box" role="alert">Enter your email and password.</div>{% endif %}
   <form method="post">{% csrf_token %}
     <label for="id_username">Email</label>
-    <input type="email" name="username" id="id_username" autocomplete="username" required autofocus value="{{ form.username.value|default:'' }}">
+    <input type="email" name="username" id="id_username" autocomplete="username" required{% if not form.username.value %} autofocus{% endif %} value="{{ form.username.value|default:'' }}">
     <label for="id_password">Password</label>
-    <input type="password" name="password" id="id_password" autocomplete="current-password" required>
+    <input type="password" name="password" id="id_password" autocomplete="current-password" required{% if form.username.value %} autofocus{% endif %}>
     <input type="hidden" name="next" value="{{ next }}">
     <p><button class="btn primary block" type="submit">Sign in</button></p>
   </form>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+// After a failed sign-in the email is kept; clicking into it selects it, so typing replaces it
+// instead of adding to the end. A second click places the cursor as usual.
+(function () {
+  const email = document.getElementById('id_username');
+  let justFocused = false;
+  email.addEventListener('focus', () => { email.select(); justFocused = true; });
+  email.addEventListener('mouseup', e => { if (justFocused) { e.preventDefault(); justFocused = false; } });
+})();
+</script>
 {% endblock %}

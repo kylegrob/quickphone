@@ -9,32 +9,38 @@
 <div class="card" style="max-width:1100px">
   <h2>Customer</h2>
   {% if customer %}
-    <div class="picked" style="margin-top:12px"><div><strong>{{ customer }}</strong><br>{{ customer.phone }}</div><span class="pill">Selected</span></div>
+    <div class="picked" style="margin-top:12px"><div><strong>{{ customer }}</strong><br>{{ customer.phone|default:customer.email }}</div><span class="pill">Selected</span></div>
   {% else %}
     <form method="get"><input type="hidden" name="date" value="{{ day|date:'Y-m-d' }}">
-      <label for="phone">Search by phone number</label>
-      <div class="inline-form"><input type="tel" id="phone" name="phone" value="{{ phone }}" style="flex:1"><button class="btn">Find customer</button></div>
+      <label for="phone">Search by phone or email</label>
+      <div class="inline-form"><input type="search" id="phone" name="phone" value="{{ phone }}" style="flex:1"><button class="btn">Find customer</button></div>
     </form>
     {% for c in matches %}
-      <div class="item"><div class="grow"><strong>{{ c }}</strong><div class="sub">{{ c.phone }}</div></div>
+      <div class="item"><div class="grow"><strong>{{ c }}</strong><div class="sub">{{ c.phone|default:c.email }}</div></div>
       <a class="btn small dark" href="?customer={{ c.pk }}&date={{ day|date:'Y-m-d' }}">Select</a></div>
     {% empty %}{% if phone %}<p class="muted">No match.</p>{% endif %}{% endfor %}
     <h3>New customer</h3>
+    <p class="muted">Enter a phone number, an email, or both.</p>
     <div class="row">
       <div><label for="fn">First name</label><input form="appt-form" type="text" id="fn" name="first_name" value="{{ post.first_name }}" maxlength="40"></div>
       <div><label for="ln">Last name</label><input form="appt-form" type="text" id="ln" name="last_name" value="{{ post.last_name }}" maxlength="40"></div>
-      <div><label for="ph">Phone</label><input form="appt-form" type="tel" id="ph" name="phone" value="{{ post.phone|default:phone }}" maxlength="20"></div>
-      <div><label for="em">Email (optional)</label><input form="appt-form" type="email" id="em" name="email" value="{{ post.email }}" maxlength="120"></div>
+      <div><label for="ph">Phone</label><input form="appt-form" type="tel" id="ph" name="phone" value="{% if post %}{{ post.phone }}{% elif "@" not in phone %}{{ phone }}{% endif %}" maxlength="20"></div>
+      <div><label for="em">Email</label><input form="appt-form" type="email" id="em" name="email" value="{% if post %}{{ post.email }}{% elif "@" in phone %}{{ phone }}{% endif %}" maxlength="120"></div>
     </div>
   {% endif %}
 
+  <span class="label">Repair type</span>
+  <div class="chips">{% for t in repair_types %}<a class="chip {% if t == repair_type %}on{% endif %}" href="?date={{ day|date:'Y-m-d' }}&type={{ t.pk }}{% if customer and not appointment %}&customer={{ customer.pk }}{% endif %}">{{ t }} · {{ t.slot_minutes }} min</a>{% endfor %}</div>
+
   <span class="label">Date</span>
-  <div class="chips">{% for d in days %}<a class="chip {% if d == day %}on{% endif %}" href="?date={{ d|date:'Y-m-d' }}{% if customer and not appointment %}&customer={{ customer.pk }}{% endif %}">{% if forloop.first %}Today, {% endif %}{{ d|date:"D, M j" }}</a>{% endfor %}</div>
+  <div class="chips">{% for d in days %}<a class="chip {% if d == day %}on{% endif %}" href="?date={{ d|date:'Y-m-d' }}{% if repair_type %}&type={{ repair_type.pk }}{% endif %}{% if customer and not appointment %}&customer={{ customer.pk }}{% endif %}">{% if forloop.first %}Today, {% endif %}{{ d|date:"D, M j" }}</a>{% endfor %}</div>
 
   <form method="post" id="appt-form">{% csrf_token %}
     {% if customer %}<input type="hidden" name="customer_id" value="{{ customer.pk }}">{% endif %}
-    <span class="label">Time slot</span>
+    {% if repair_type %}<input type="hidden" name="repair_type_id" value="{{ repair_type.pk }}">{% endif %}
+    <span class="label">Time slot{% if repair_type %} ({{ minutes }} minutes){% endif %}</span>
     <div class="chips">
+      {% if not repair_type %}<p class="muted">Pick the repair type first.</p>{% endif %}
       {% for s in slots %}
         {% if s.full %}<span class="chip full" aria-disabled="true">{{ s.label }}{% if not s.selected %} · Full{% endif %}</span>
         {% else %}<label class="chip"><input type="radio" name="slot" value="{{ s.when.isoformat }}" data-busy="{{ s.busy|join:',' }}" {% if s.selected %}checked{% endif %} required>{{ s.label }}</label>{% endif %}

@@ -20,6 +20,7 @@ urlpatterns = [
     path("jobs/<int:pk>/", desk.job_detail, name="job_detail"),
     path("jobs/<int:pk>/ticket/", desk.job_ticket, name="job_ticket"),
     path("jobs/<int:pk>/notify/", desk.job_notify, name="job_notify"),
+    path("jobs/<int:pk>/receipt/", desk.job_receipt, name="job_receipt"),
     # Technician: diagnosis, quote, repair (DFD 3.0, 4.0)
     path("bench/", bench.bench, name="bench"),
     path("bench/<int:pk>/", bench.bench, name="bench_job"),
@@ -36,5 +37,7 @@ urlpatterns = [
     path("staff/<int:pk>/", records.staff_edit, name="staff_edit"),
     path("suppliers/new/", records.supplier_edit, name="supplier_new"),
     path("suppliers/<int:pk>/", records.supplier_edit, name="supplier_edit"),
+    path("repair-types/new/", records.repair_type_edit, name="repair_type_new"),
+    path("repair-types/<int:pk>/", records.repair_type_edit, name="repair_type_edit"),
     path("stores/<int:pk>/", records.store_edit, name="store_edit"),
 ]

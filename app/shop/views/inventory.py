@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from .. import models as m
 from .. import services
 from ..permissions import PRICE_ROLES, screen_required
-from .common import attempt, to_int
+from .common import attempt, to_int, keep_typed
 
 
 def _rows(store):
@@ -26,15 +26,26 @@ def _rows(store):
     return rows
 
 
+def _submitted_message(result):
+    recipients, sent = result
+    if sent:
+        return f"Submitted for approval. Emailed {len(recipients)} approver{'s' if len(recipients) != 1 else ''}."
+    if recipients:
+        return "Submitted for approval. The approval email could not be sent; tell a Manager or the Owner."
+    return "Submitted for approval."
+
+
 @screen_required("inventory")
 def inventory(request):
     store, user = request.store, request.user
     if request.method == "POST":
-        part = get_object_or_404(m.Part, pk=request.POST.get("part_id"))
+        part = get_object_or_404(m.Part, pk=to_int(request.POST.get("part_id")))
         action = request.POST.get("action")
         if action == "adjust":
             attempt(request, services.adjust_stock, store, part, to_int(request.POST.get("change")),
-                    request.POST.get("reason"), user, success=f"Stock of {part} adjusted.")
+                    request.POST.get("reason"), user,
+                    success=lambda jobs: f"Stock of {part} adjusted." + (
+                        " Back to In Repair: " + ", ".join(j.ticket_number for j in jobs) if jobs else ""))
         elif action == "reorder":
             attempt(request, services.set_reorder_point, store, part, to_int(request.POST.get("reorder_point"), -1),
                     user, success=f"Reorder point for {part} saved.")
@@ -92,7 +103,7 @@ def part_edit(request, pk=None):
             part.standard_cost = cost
             if request.user.role in PRICE_ROLES:
                 part.labor_cost = labor
-            part.default_supplier = m.Supplier.objects.filter(pk=p.get("supplier_id") or 0).first()
+            part.default_supplier = m.Supplier.objects.filter(pk=to_int(p.get("supplier_id"))).first()
             part.active_flag = p.get("active_flag") == "on" if pk else True
             with transaction.atomic():
                 part.save()
@@ -107,8 +118,14 @@ def part_edit(request, pk=None):
             return redirect("inventory")
         for e in errors:
             messages.error(request, e)
+        keep_typed(part, p, ["sku", "part_name", "device_model", "grade", "standard_cost"])
+        if request.user.role in PRICE_ROLES:
+            part.labor_cost = p.get("labor_cost", "")
+        part.default_supplier_id = to_int(p.get("supplier_id")) or None
+        invalid = {f for f, words in (("sku", "SKU"), ("standard_cost", "unit cost"), ("labor_cost", "labor cost"),
+                                      ("part_name", "part name")) if any(words in e for e in errors)}
     return render(request, "shop/part_form.html", {
-        "part": part, "stock": stock, "can_price": request.user.role in PRICE_ROLES, "suppliers": m.Supplier.objects.filter(active_flag=True),
+        "part": part, "post": request.POST, "invalid": invalid if request.method == "POST" else set(), "stock": stock, "can_price": request.user.role in PRICE_ROLES, "suppliers": m.Supplier.objects.filter(active_flag=True),
         "txns": m.InventoryTxn.objects.filter(store=request.store, part=part).select_related("recorded_by")[:15]
         if pk else [],
     })
@@ -210,13 +227,13 @@ def po_detail(request, pk):
                 else:
                     line.quantity_ordered = n
                     line.save()
-            part = m.Part.objects.filter(pk=p.get("add_part_id") or 0).first()
+            part = m.Part.objects.filter(pk=to_int(p.get("add_part_id"))).first()
             if part:
                 attempt(request, services.add_to_po, po.store, part, to_int(p.get("add_quantity"), 1), user)
             messages.success(request, "Order lines saved.")
         elif action == "submit":
             ids = [to_int(i) for i in p.getlist("link_job_part")]
-            attempt(request, services.submit_po, po, user, ids, success="Submitted for approval.")
+            attempt(request, services.submit_po, po, user, ids, success=_submitted_message)
         elif action == "approve":
             attempt(request, services.approve_po, po, user, success="Order approved.")
         elif action == "reject":

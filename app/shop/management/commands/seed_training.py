@@ -17,6 +17,7 @@ from django.utils import timezone
 from shop import models as m
 from shop import services as s
 from shop.device_catalog import STARTER_DEVICES
+from shop.repair_types import STARTER_REPAIR_TYPES
 
 TRAINING_PASSWORD = "QuickPhone-Training-26"
 
@@ -50,6 +51,41 @@ PARTS = [
     ("QP-CHG-USBC", "Charging port", "Pixel 7", "OEM", "15.00", 2, (5, 2), (2, 2)),
     ("QP-CAM-IP13", "Rear camera", "iPhone 13", "OEM", "55.00", 2, (2, 1), (0, 1)),
 ]
+# Screen, charging port and battery for every device in the check-in list (Kyle, 2026-11-20), so
+# any device a trainee picks has parts to quote. Consoles without them get an HDMI port and power
+# supply. Prices are placeholders for training, not the client's; stock sits above the reorder point
+# so the low-stock exercises above are unchanged.
+COMMON_PARTS = {  # device type: [(code, name, cost, labor)]
+    "Phone": [("SCR", "Screen assembly", "70.00", "55.00"), ("CHG", "Charging port", "15.00", "35.00"),
+              ("BAT", "Battery", "28.00", "40.00")],
+    "Tablet": [("SCR", "Screen assembly", "85.00", "60.00"), ("CHG", "Charging port", "20.00", "40.00"),
+               ("BAT", "Battery", "40.00", "45.00")],
+    "Laptop": [("SCR", "Screen assembly", "140.00", "80.00"), ("CHG", "Charging port", "25.00", "50.00"),
+               ("BAT", "Battery", "65.00", "45.00")],
+    "Game console": [("SCR", "Screen assembly", "45.00", "50.00"), ("CHG", "Charging port", "18.00", "40.00"),
+                     ("BAT", "Battery", "30.00", "40.00")],
+    "Home console": [("HDMI", "HDMI port", "20.00", "60.00"), ("PSU", "Power supply", "55.00", "40.00")],
+}
+HOME_CONSOLES = {"PlayStation 5", "Xbox Series X"}
+
+
+def device_parts():
+    """PARTS rows for the common parts of every listed device, skipping ones PARTS already has."""
+    have = {(name, model) for _, name, model, *_ in PARTS}
+    rows = []
+    for i, (device_type, brand, model) in enumerate(STARTER_DEVICES):
+        kind = "Home console" if model in HOME_CONSOLES else device_type
+        slug = "".join(c for c in model.upper() if c.isalnum())[:16]
+        for j, (code, name, cost, labor) in enumerate(COMMON_PARTS[kind]):
+            if (name, model) in have:
+                continue
+            sku = f"QP-{code}-{slug}"
+            rows.append((sku, name, model, "Grade A" if code in ("SCR", "BAT") else "OEM", cost, (i + j) % 3,
+                         (2 + (i + j) % 4, 1), (2 + (i + 2 * j) % 3, 1)))
+            LABOR[sku] = labor
+    return rows
+
+
 # Repair labor the Owner has set for each part (placeholder prices for training, not the client's).
 LABOR = {"QP-SCR-IP13": "55.00", "QP-SCR-IP14": "60.00", "QP-DIG-IPD9": "50.00", "QP-HBF-IPD9": "30.00",
          "QP-BAT-IP12": "40.00", "QP-BAT-S22": "45.00", "QP-BAT-A54": "40.00", "QP-CHG-USBC": "35.00",
@@ -96,9 +132,11 @@ class Command(BaseCommand):
                                                          last_name=last, role=role, store=stores[si])
         for device_type, brand, model in STARTER_DEVICES:
             m.DeviceModel.objects.get_or_create(brand=brand, model=model, defaults={"device_type": device_type})
+        types = {n: m.RepairType.objects.get_or_create(type_name=n, defaults={"slot_minutes": mins})[0]
+                 for n, mins in STARTER_REPAIR_TYPES}
         suppliers = [m.Supplier.objects.create(supplier_name=n, contact_name=c, phone=p) for n, c, p in SUPPLIERS]
         parts = {}
-        for sku, name, model, grade, cost, si, st1, st2 in PARTS:
+        for sku, name, model, grade, cost, si, st1, st2 in PARTS + device_parts():
             part = m.Part.objects.create(sku=sku, part_name=name, device_model=model, grade=grade,
                                          standard_cost=Decimal(cost), labor_cost=Decimal(LABOR.get(sku, "0")),
                                          default_supplier=suppliers[si])
@@ -123,10 +161,14 @@ class Command(BaseCommand):
         # Today's and tomorrow's appointments (FR01). Created directly so past slots still show.
         tz = timezone.get_current_timezone()
         today, tomorrow = timezone.localdate(), timezone.localdate() + timedelta(days=1)
-        for c, t, when in [(maria, sam, time(9, 30)), (david, jordan, time(11, 0)), (aisha, None, time(13, 30))]:
-            m.Appointment.objects.create(customer=c, store=s1, technician=t,
+        for c, t, when, kind in [(maria, sam, time(9, 30), "Screen replacement"),
+                                 (david, jordan, time(11, 0), "Battery replacement"),
+                                 (aisha, None, time(13, 30), "Diagnosis (not sure what is wrong)")]:
+            m.Appointment.objects.create(customer=c, store=s1, technician=t, repair_type=types[kind],
+                                         duration_minutes=types[kind].slot_minutes,
                                          scheduled_at=datetime.combine(today, when, tz))
-        m.Appointment.objects.create(customer=tom, store=s1, technician=sam,
+        m.Appointment.objects.create(customer=tom, store=s1, technician=sam, repair_type=types["Water damage"],
+                                     duration_minutes=types["Water damage"].slot_minutes,
                                      scheduled_at=datetime.combine(tomorrow, time(10, 0), tz))
 
         def job(store, dev, issue, tech, condition="", passcode="", by=desk):

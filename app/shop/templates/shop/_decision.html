@@ -1,0 +1,9 @@
+{% if job.status == "Awaiting Approval" %}
+<div class="decision">
+  <p><strong>Waiting for the customer's answer.</strong> Record it here once they reply.</p>
+  <div class="actions" style="margin-top:10px">
+    <form method="post" class="inline">{% csrf_token %}<input type="hidden" name="action" value="approve"><button class="btn primary">Customer approved</button></form>
+    <form method="post" class="inline" onsubmit="return confirm('{% if job.has_approved_quote %}Record that the customer declined the additional repair? The repair they already approved continues.{% else %}Record that the customer declined? The device goes back unrepaired.{% endif %}')">{% csrf_token %}<input type="hidden" name="action" value="decline"><button class="btn danger">Customer declined</button></form>
+  </div>
+</div>
+{% endif %}

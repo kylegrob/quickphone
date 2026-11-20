@@ -399,6 +399,289 @@ class AppointmentTests(Base):
         self.assertEqual(appt.appt_status, m.APPT_CHECKED_IN)
 
 
+class RepairTypeSlotTests(Base):
+    """2026-11-20: the appointment length comes from the repair type."""
+
+    def at(self, hour, minute=0, days=2):  # tomorrow has seeded bookings
+        return timezone.make_aware(datetime.combine(timezone.localdate() + timedelta(days=days), time(hour, minute)))
+
+    def kind(self, minutes, name=None):
+        return m.RepairType.objects.create(type_name=name or f"Test {minutes}", slot_minutes=minutes)
+
+    def test_booking_copies_the_repair_type_length(self):
+        cust = m.Customer.objects.get(last_name="Bello")
+        appt = s.save_appointment(self.store1, cust, self.at(10), self.sam, self.desk, repair_type=self.kind(90))
+        self.assertEqual(appt.duration_minutes, 90)
+        self.assertEqual(appt.ends_at, self.at(11, 30))
+
+    def test_long_booking_blocks_the_technician_for_its_whole_length(self):
+        a, b = m.Customer.objects.all()[:2]
+        s.save_appointment(self.store1, a, self.at(10), self.sam, self.desk, repair_type=self.kind(90))
+        with self.assertRaises(s.RuleError):  # 11:00 is inside Sam's 10:00-11:30 booking
+            s.save_appointment(self.store1, b, self.at(11), self.sam, self.desk, repair_type=self.kind(30, "x"))
+        s.save_appointment(self.store1, b, self.at(11, 30), self.sam, self.desk, repair_type=self.kind(30, "y"))
+
+    def test_new_booking_cannot_run_into_a_later_one(self):
+        a, b = m.Customer.objects.all()[:2]
+        s.save_appointment(self.store1, a, self.at(11), self.sam, self.desk, repair_type=self.kind(30))
+        with self.assertRaises(s.RuleError):  # a 60-minute booking at 10:30 overlaps Sam's 11:00
+            s.save_appointment(self.store1, b, self.at(10, 30), self.sam, self.desk, repair_type=self.kind(60))
+
+    def test_overlapping_bookings_fill_the_store(self):
+        customers = list(m.Customer.objects.all()[:3])
+        long = self.kind(120)
+        s.save_appointment(self.store1, customers[0], self.at(9), self.sam, self.desk, repair_type=long)
+        s.save_appointment(self.store1, customers[1], self.at(10), self.jordan, self.desk, repair_type=long)
+        self.assertTrue(s.slot_is_full(self.store1, self.at(10, 30), 30))  # both technicians busy
+        self.assertFalse(s.slot_is_full(self.store1, self.at(12), 30))
+        with self.assertRaises(s.RuleError):
+            s.save_appointment(self.store1, customers[2], self.at(10, 30), None, self.desk, repair_type=self.kind(30))
+
+    def test_booking_cannot_run_past_closing(self):
+        cust = m.Customer.objects.get(last_name="Bello")
+        with self.assertRaises(s.RuleError):  # last slot 17:00, closes 17:30
+            s.save_appointment(self.store1, cust, self.at(17), None, self.desk, repair_type=self.kind(60))
+
+    def test_inactive_repair_type_cannot_be_booked(self):
+        kind = self.kind(30)
+        kind.active_flag = False
+        kind.save()
+        with self.assertRaises(s.RuleError):
+            s.save_appointment(self.store1, m.Customer.objects.first(), self.at(10), None, self.desk,
+                               repair_type=kind)
+
+    def test_booking_screen_needs_a_repair_type(self):
+        self.login(self.desk)
+        cust = m.Customer.objects.get(last_name="Bello")
+        page = self.client.get(reverse("appointment_new"), {"customer": cust.pk})
+        self.assertContains(page, "Pick the repair type first.")
+        self.client.post(reverse("appointment_new"), {"customer_id": cust.pk, "slot": self.at(14).isoformat()})
+        self.assertFalse(m.Appointment.objects.filter(customer=cust, scheduled_at=self.at(14)).exists())
+        kind = m.RepairType.objects.get(type_name="Water damage")
+        page = self.client.get(reverse("appointment_new"), {"customer": cust.pk, "type": kind.pk})
+        self.assertContains(page, f"Time slot ({kind.slot_minutes} minutes)")
+        self.client.post(reverse("appointment_new"), {"customer_id": cust.pk, "repair_type_id": kind.pk,
+                                                      "slot": self.at(14).isoformat()})
+        appt = m.Appointment.objects.get(customer=cust, scheduled_at=self.at(14))
+        self.assertEqual((appt.repair_type, appt.duration_minutes), (kind, kind.slot_minutes))
+
+    def test_manager_sets_length_and_front_desk_cannot(self):
+        kind = m.RepairType.objects.get(type_name="Screen replacement")
+        self.login(self.desk)
+        r = self.client.post(reverse("repair_type_edit", args=[kind.pk]),
+                             {"type_name": kind.type_name, "slot_minutes": "45"})
+        self.assertEqual(r.status_code, 403)
+        self.login(self.manager)
+        self.client.post(reverse("repair_type_edit", args=[kind.pk]),
+                         {"type_name": kind.type_name, "slot_minutes": "50", "active_flag": "on"})
+        kind.refresh_from_db()
+        self.assertNotEqual(kind.slot_minutes, 50)  # not a 15-minute step
+        self.client.post(reverse("repair_type_edit", args=[kind.pk]),
+                         {"type_name": kind.type_name, "slot_minutes": "45", "active_flag": "on"})
+        kind.refresh_from_db()
+        self.assertEqual(kind.slot_minutes, 45)
+
+    def test_changing_a_type_keeps_existing_bookings(self):
+        kind = self.kind(60)
+        appt = s.save_appointment(self.store1, m.Customer.objects.first(), self.at(10), None, self.desk,
+                                  repair_type=kind)
+        kind.slot_minutes = 120
+        kind.save()
+        appt.refresh_from_db()
+        self.assertEqual(appt.duration_minutes, 60)
+
+
+class IntakeContactTests(Base):
+    """2026-11-20: a new customer needs a phone or an email, at least one."""
+
+    def post(self, **fields):
+        self.login(self.desk)
+        data = {"first_name": "Test", "last_name": "Contact", "phone": "", "email": "",
+                "device_model_id": self.listed("iPhone 11").pk, "reported_issue": "Contact test"}
+        data.update(fields)
+        return self.client.post(reverse("checkin"), data)
+
+    def test_no_phone_and_no_email_is_blocked(self):
+        html = self.post().content.decode()
+        self.assertIn("phone or email", html)
+        self.assertFalse(m.RepairJob.objects.filter(reported_issue="Contact test").exists())
+        for field in ("new_phone", "email"):
+            tag = html[html.index(f'id="{field}"'):]
+            self.assertIn('aria-invalid="true"', tag[:tag.index(">")], field)
+
+    def test_email_only_customer_is_accepted(self):
+        self.post(email="email.only@example.com")
+        cust = m.RepairJob.objects.get(reported_issue="Contact test").customer
+        self.assertEqual((cust.phone, cust.email), ("", "email.only@example.com"))
+
+    def test_phone_only_customer_is_accepted(self):
+        self.post(phone="(919) 555-0901")
+        self.assertTrue(m.RepairJob.objects.filter(reported_issue="Contact test").exists())
+
+    def test_duplicate_email_is_blocked(self):
+        self.post(email="M.Santos@example.com")
+        self.assertFalse(m.RepairJob.objects.filter(reported_issue="Contact test").exists())
+
+    def test_search_finds_customer_by_email(self):
+        self.login(self.desk)
+        self.assertContains(self.client.get(reverse("checkin"), {"phone": "m.santos@example.com"}), "Maria Santos")
+
+    def test_database_refuses_a_customer_with_no_contact(self):
+        from django.db import IntegrityError, transaction
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            m.Customer.objects.create(first_name="No", last_name="Contact", phone="", email=None)
+
+
+class POApprovalEmailTests(Base):
+    """2026-11-20: submitting an order emails the people who can approve it."""
+
+    def draft(self, by):
+        po = m.PurchaseOrder.objects.create(store=self.store1, supplier=m.Supplier.objects.first(), created_by=by)
+        part = m.Part.objects.first()
+        m.POLine.objects.create(purchase_order=po, part=part, quantity_ordered=2, unit_cost=part.standard_cost)
+        return po
+
+    def test_submit_emails_store_manager_and_owner_not_submitter(self):
+        mail.outbox.clear()
+        po = self.draft(self.manager)
+        recipients, sent = s.submit_po(po, self.manager)
+        self.assertTrue(sent)
+        self.assertEqual(len(mail.outbox), 1)
+        msg = mail.outbox[0]
+        self.assertIn(self.owner.email, msg.to)
+        self.assertNotIn(self.manager.email, msg.to)
+        self.assertNotIn("manager2@quickphone.test", msg.to)  # the other store's Manager
+        self.assertIn(po.number, msg.subject)
+        self.assertEqual(msg.from_email, self.store1.email_address)
+
+    def test_failed_email_still_submits(self):
+        from unittest import mock
+        po = self.draft(self.manager)
+        with mock.patch("shop.services.send_mail", side_effect=OSError):
+            recipients, sent = s.submit_po(po, self.manager)
+        po.refresh_from_db()
+        self.assertEqual((po.po_status, sent), (m.PO_PENDING, False))
+
+    def test_screen_says_who_was_emailed(self):
+        po = self.draft(self.manager)
+        self.login(self.manager)
+        r = self.client.post(reverse("po_detail", args=[po.pk]), {"action": "submit"}, follow=True)
+        self.assertContains(r, "Emailed")
+
+
+class DeletePaymentTests(Base):
+    """2026-11-20: a payment recorded by mistake can be deleted before release; history keeps it."""
+
+    def test_mistaken_payment_is_deleted_and_logged(self):
+        job = self.job("Will not charge")
+        s.record_payment(job, self.desk, "5.00", "Cash")
+        pay = job.payments.get()
+        s.delete_payment(job, self.desk, pay.pk)
+        self.assertFalse(job.payments.exists())
+        note = job.history.order_by("-pk").first()
+        self.assertEqual(note.changed_by, self.desk)
+        self.assertIn("$5.00 Cash", note.note)
+        self.assertIn("deleted", note.note)
+
+    def test_release_is_blocked_again_after_deleting_the_payment(self):
+        job = self.job("Will not charge")
+        s.record_payment(job, self.desk, job.final_cost, "Card")
+        s.delete_payment(job, self.desk, job.payments.get().pk)
+        with self.assertRaises(s.RuleError):
+            s.release_device(job, self.desk, True, True)
+
+    def test_payment_cannot_be_deleted_after_release(self):
+        job = self.job("Will not charge")
+        s.record_payment(job, self.desk, job.final_cost, "Card")
+        s.release_device(job, self.desk, True, True)
+        with self.assertRaises(s.RuleError):
+            s.delete_payment(job, self.desk, job.payments.get().pk)
+        self.assertTrue(job.payments.exists())
+
+    def test_cannot_delete_another_jobs_payment(self):
+        job, other = self.job("Will not charge"), self.job("Keyboard not responding")
+        s.record_payment(other, self.desk, "10.00", "Cash")
+        with self.assertRaises(s.RuleError):
+            s.delete_payment(job, self.desk, other.payments.get().pk)
+        self.assertTrue(other.payments.exists())
+
+    def test_screen_deletes_payment(self):
+        job = self.job("Will not charge")
+        s.record_payment(job, self.desk, "5.00", "Cash")
+        self.login(self.desk)
+        page = self.client.get(reverse("job_detail", args=[job.pk]))
+        self.assertContains(page, 'value="delete_payment"')
+        r = self.client.post(reverse("job_detail", args=[job.pk]),
+                             {"action": "delete_payment", "payment_id": job.payments.get().pk}, follow=True)
+        self.assertContains(r, "Payment deleted.")
+        self.assertFalse(job.payments.exists())
+
+    def test_technician_cannot_delete_payment(self):
+        job = self.job("Will not charge")
+        s.record_payment(job, self.desk, "5.00", "Cash")
+        self.login(self.jordan)
+        r = self.client.post(reverse("job_detail", args=[job.pk]),
+                             {"action": "delete_payment", "payment_id": job.payments.get().pk})
+        self.assertEqual(r.status_code, 403)
+        self.assertTrue(job.payments.exists())
+
+
+class KeepTypedInputTests(Base):
+    """2026-11-20: a refused action shows the form again with what was typed."""
+
+    def test_refused_mark_ready_keeps_notes_and_quantities(self):
+        job = self.job("Cracked screen")
+        self.login(self.sam)
+        r = self.client.post(reverse("bench_job", args=[job.pk]), {
+            "action": "complete", "repair_notes": "Replaced screen, tested touch",
+            f"used_{self.part('QP-SCR-IP13').pk}": "99", f"used_{self.part('QP-ADH-KIT').pk}": "1"})
+        self.assertEqual(r.status_code, 200)  # not a redirect
+        self.assertContains(r, "Replaced screen, tested touch")
+        self.assertContains(r, f'name="used_{self.part("QP-SCR-IP13").pk}" value="99"')
+        self.assertContains(r, "short")
+        job.refresh_from_db()
+        self.assertEqual(job.status, m.IN_REPAIR)
+
+    def test_refused_add_work_keeps_reason_and_opens_the_section(self):
+        job = self.job("Cracked screen")
+        self.login(self.sam)
+        r = self.client.post(reverse("bench_job", args=[job.pk]),
+                             {"action": "add_work", "charge": "no", "diagnosis_notes": "Loose flex cable"})
+        self.assertContains(r, "Loose flex cable")
+        self.assertContains(r, '<details class="more" open><summary>Add parts or work')
+        self.assertContains(r, 'value="no" checked')
+
+    def test_part_needing_buttons_are_marked_for_the_script(self):
+        job = self.job("Cracked screen")
+        self.login(self.sam)
+        self.assertContains(self.client.get(reverse("bench_job", args=[job.pk])), 'class="btn needs-part"')
+
+    def test_refused_staff_account_keeps_names(self):
+        self.login(self.manager)
+        r = self.client.post(reverse("staff_new"), {
+            "first_name": "Casey", "last_name": "Nguyen", "email": "sam@quickphone.test", "role": m.FRONT_DESK,
+            "store_id": self.store1.pk, "password": "a-long-enough-phrase-26"})
+        self.assertContains(r, 'value="Casey"')
+        self.assertContains(r, 'value="Nguyen"')
+        self.assertContains(r, 'value="sam@quickphone.test" maxlength="120" required aria-invalid="true"')
+
+    def test_refused_part_keeps_typed_values(self):
+        self.login(self.manager)
+        r = self.client.post(reverse("part_new"), {
+            "sku": "QP-SCR-IP13", "part_name": "Typed name", "standard_cost": "12.50", "quantity_on_hand": "7"})
+        self.assertContains(r, 'value="Typed name"')
+        self.assertContains(r, 'value="12.50"')
+        self.assertContains(r, 'name="quantity_on_hand" value="7"')
+        self.assertContains(r, 'placeholder="QP-SCR-IP13" aria-invalid="true"')
+
+    def test_refused_repair_type_keeps_name_and_marks_minutes(self):
+        self.login(self.manager)
+        r = self.client.post(reverse("repair_type_new"), {"type_name": "Back glass", "slot_minutes": "50"})
+        self.assertContains(r, 'value="Back glass"')
+        self.assertContains(r, 'name="slot_minutes" aria-invalid="true"')
+        self.assertFalse(m.RepairType.objects.filter(type_name="Back glass").exists())
+
+
 class WorkflowTests(Base):
     def test_fr04_technician_sees_only_own_queue(self):
         self.login(self.sam)
@@ -414,6 +697,34 @@ class WorkflowTests(Base):
         self.assertEqual(job.assigned_tech, self.sam)
         with self.assertRaises(s.RuleError):
             s.claim(job, self.jordan)
+
+    def test_assigned_technician_records_approval_on_bench(self):
+        """2026-11-20: the customer's answer can be recorded from the assigned job as well."""
+        job = self.job("Shuts off under 20 percent")
+        self.login(self.sam)
+        page = self.client.get(reverse("bench_job", args=[job.pk]))
+        self.assertContains(page, "Customer approved")
+        self.client.post(reverse("bench_job", args=[job.pk]), {"action": "approve"})
+        job.refresh_from_db()
+        self.assertEqual(job.status, m.IN_REPAIR)
+        self.assertEqual(job.current_quote.decision_by, self.sam)
+
+    def test_other_technician_cannot_record_approval(self):
+        job = self.job("Shuts off under 20 percent")
+        self.login(self.jordan)  # Sam's job: not in Jordan's bench at all
+        r = self.client.post(reverse("bench_job", args=[job.pk]), {"action": "approve"})
+        self.assertEqual(r.status_code, 404)
+        job.refresh_from_db()
+        self.assertEqual(job.status, m.AWAITING_APPROVAL)
+
+    def test_checkin_lists_jobs_waiting_for_the_customers_answer(self):
+        job = self.job("Shuts off under 20 percent")
+        self.login(self.desk)
+        page = self.client.get(reverse("checkin"))
+        self.assertContains(page, "Waiting for the customer")
+        self.assertContains(page, reverse("job_detail", args=[job.pk]))
+        self.login(self.sam)  # Technicians cannot open Repair jobs, so no list
+        self.assertNotContains(self.client.get(reverse("checkin")), "Waiting for the customer")
 
     def test_fr05_decline_blocks_repair(self):
         job = self.job("Shuts off under 20 percent")
@@ -506,6 +817,22 @@ class WorkflowTests(Base):
         job.refresh_from_db()
         self.assertEqual((job.status, self.on_hand("QP-SCR-IP13")), (m.READY, before - 1))
 
+    def complete_on_bench(self, job):
+        self.login(self.sam)
+        return self.client.post(reverse("bench_job", args=[job.pk]), {
+            "action": "complete", "repair_notes": "done", f"used_{self.part('QP-SCR-IP13').pk}": "1",
+            f"used_{self.part('QP-ADH-KIT').pk}": "1"}, follow=True)
+
+    def test_fr12_marking_ready_sends_no_email(self):
+        """Owner, Oct 23 #1: the pickup notification is sent by a click, never automatically."""
+        mail.outbox.clear()
+        job = self.job("Cracked screen")
+        r = self.complete_on_bench(job)
+        job.refresh_from_db()
+        self.assertEqual((job.status, job.email_status), (m.READY, None))
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertContains(r, "Send pickup notification")
+
     def test_fr06_out_of_stock_approval_waits_for_parts(self):
         job = self.job("Green line on display")
         self.assertEqual(job.status, m.AWAITING_PARTS)
@@ -514,17 +841,17 @@ class WorkflowTests(Base):
     def test_fr08_unpaid_release_blocked_then_paid_release_succeeds(self):
         job = self.job("Will not charge")
         with self.assertRaises(s.RuleError):
-            s.release_device(job, self.desk, True)
+            s.release_device(job, self.desk, True, True)
         s.record_payment(job, self.desk, job.final_cost, "Card")
         with self.assertRaises(s.RuleError):
-            s.release_device(job, self.desk, False)  # ID not checked
-        s.release_device(job, self.desk, True)
+            s.release_device(job, self.desk, False, True)  # ID not checked
+        s.release_device(job, self.desk, True, True)
         self.assertEqual(job.status, m.CLOSED)
         self.assertTrue(job.id_verified_flag)
 
     def test_unrepaired_device_released_without_fee(self):
         job = self.job("Keyboard not responding")
-        s.release_device(job, self.desk, True)
+        s.release_device(job, self.desk, True, True)
         self.assertEqual(job.status, m.CLOSED)
 
     def test_nfr02_every_change_records_who_and_when(self):
@@ -554,6 +881,30 @@ class NotificationTests(Base):
         self.client.post(reverse("job_notify", args=[job.pk]))
         job.refresh_from_db()
         self.assertEqual(job.email_sent_by, self.jordan)
+
+    def test_bench_shows_whether_pickup_notification_was_sent(self):
+        """2026-11-20: the bench shows the notification state, in the job list and on the job."""
+        job = self.job("Will not charge")
+        self.login(self.jordan)
+        page = self.client.get(reverse("bench_job", args=[job.pk])).content.decode()
+        self.assertIn("Not sent yet", page)
+        self.assertIn("Pickup notification: not sent", page)
+        self.assertIn("Send pickup notification", page)
+        r = self.client.post(reverse("job_notify", args=[job.pk]), {"back": "bench"}, follow=True)
+        self.assertRedirects(r, reverse("bench_job", args=[job.pk]))
+        page = r.content.decode()
+        self.assertIn("Pickup notification: sent", page)
+        self.assertIn("Send again", page)
+
+    def test_manager_sending_from_bench_returns_to_bench(self):
+        job = self.job("Will not charge")
+        job.assigned_tech = self.manager
+        job.save()
+        self.login(self.manager)
+        r = self.client.post(reverse("job_notify", args=[job.pk]), {"back": "bench"})
+        self.assertRedirects(r, reverse("bench_job", args=[job.pk]))
+        r = self.client.post(reverse("job_notify", args=[job.pk]))
+        self.assertRedirects(r, reverse("job_detail", args=[job.pk]))
 
     def test_fr12_not_sent_before_repair_complete(self):
         with self.assertRaises(s.RuleError):
@@ -799,10 +1150,62 @@ class SecurityTests(Base):
         for _ in range(settings.LOGIN_MAX_FAILURES):
             self.client.post(reverse("login"), {"username": "desk1@quickphone.test", "password": "wrong-guess"})
         r = self.client.post(reverse("login"), {"username": "desk1@quickphone.test", "password": TRAINING_PASSWORD})
-        self.assertContains(r, "Too many failed sign-ins")
+        self.assertContains(r, "This account is locked after")
         self.assertNotIn("_auth_user_id", self.client.session)
         r = self.client.post(reverse("login"), {"username": "sam@quickphone.test", "password": TRAINING_PASSWORD})
         self.assertEqual(r.status_code, 302)  # other accounts are not affected
+
+    def fail(self, email="desk1@quickphone.test"):
+        return self.client.post(reverse("login"), {"username": email, "password": "wrong-guess"})
+
+    def test_f4_the_failure_that_locks_says_locked_with_minutes(self):
+        """2026-11-20: a locked account is told it is locked, not that the password is wrong."""
+        from django.conf import settings
+        for _ in range(settings.LOGIN_MAX_FAILURES - 1):
+            self.assertNotContains(self.fail(), "locked after")
+        r = self.fail()
+        self.assertContains(r, "This account is locked after")
+        self.assertContains(r, f"Try again in {settings.LOGIN_LOCK_MINUTES} minutes")
+        self.assertNotContains(r, "Email or password is not correct")
+
+    def test_f4_last_tries_are_warned(self):
+        from django.conf import settings
+        for _ in range(settings.LOGIN_MAX_FAILURES - 3):
+            self.assertNotContains(self.fail(), "will lock this account")
+        self.assertContains(self.fail(), "2 more failed tries will lock this account")
+        self.assertContains(self.fail(), "1 more failed try will lock this account")
+
+    def test_f4_inactive_account_is_told_so_only_with_right_password(self):
+        self.desk.active_flag = False
+        self.desk.save()
+        r = self.client.post(reverse("login"), {"username": "desk1@quickphone.test", "password": TRAINING_PASSWORD})
+        self.assertContains(r, "This account is turned off")
+        self.assertNotContains(self.fail(), "turned off")
+
+    def test_f4_manager_unlocks_an_account(self):
+        from django.conf import settings
+        from .auth import is_locked
+        for _ in range(settings.LOGIN_MAX_FAILURES):
+            self.fail()
+        self.assertTrue(is_locked("desk1@quickphone.test"))
+        self.login(self.manager)
+        self.assertContains(self.client.get(reverse("staff")), "Locked")
+        self.assertContains(self.client.get(reverse("staff_edit", args=[self.desk.pk])), "Unlock sign-in now")
+        self.client.post(reverse("staff_edit", args=[self.desk.pk]), {"action": "unlock"})
+        self.assertFalse(is_locked("desk1@quickphone.test"))
+        self.client.logout()
+        r = self.client.post(reverse("login"), {"username": "desk1@quickphone.test", "password": TRAINING_PASSWORD})
+        self.assertEqual(r.status_code, 302)
+
+    def test_f4_technician_cannot_unlock(self):
+        from django.conf import settings
+        from .auth import is_locked
+        for _ in range(settings.LOGIN_MAX_FAILURES):
+            self.fail()
+        self.login(self.sam)
+        r = self.client.post(reverse("staff_edit", args=[self.desk.pk]), {"action": "unlock"})
+        self.assertEqual(r.status_code, 403)
+        self.assertTrue(is_locked("desk1@quickphone.test"))
 
     def test_f4_successful_sign_in_resets_the_count(self):
         from .auth import failures
@@ -827,7 +1230,7 @@ class SecurityTests(Base):
         job.device_passcode = encrypt_passcode("2468")
         job.save()
         s.record_payment(job, self.desk, job.final_cost, "Card")
-        s.release_device(job, self.desk, True)
+        s.release_device(job, self.desk, True, True)
         job.refresh_from_db()
         self.assertIsNone(job.device_passcode)
         self.assertIn("passcode deleted", job.history.latest("history_id").note)
@@ -856,7 +1259,7 @@ class SecurityTests(Base):
         self.login(self.desk)
         self.assertEqual(self.client.get(reverse("job_detail", args=[job.pk])).status_code, 404)
         self.assertEqual(self.client.get(reverse("job_ticket", args=[job.pk])).status_code, 404)
-        self.client.post(reverse("job_detail", args=[job.pk]), {"action": "release", "id_verified": "on"})
+        self.client.post(reverse("job_detail", args=[job.pk]), {"action": "release", "id_verified": "on", "receipt_signed": "on"})
         job.refresh_from_db()
         self.assertNotEqual(job.status, m.CLOSED)
         part = m.Part.objects.filter(default_supplier__isnull=False).first()
@@ -892,3 +1295,236 @@ class SecurityTests(Base):
         r = client.post(reverse("job_detail", args=[job.pk]), {"action": "payment", "amount": "1", "method": "Cash"})
         self.assertEqual(r.status_code, 403)
         self.assertFalse(m.Payment.objects.filter(repair_job=job).exists())
+
+
+class DefectRegressionTests(Base):
+    """One test per defect found by the Sprint 4 system tests (specification section 11.5, 2026-11-08)."""
+
+    def waiting_job_short_of_one(self):
+        """Quoted 2 of a part with 1 on hand, so the job waits with only the shortfall recorded as needed."""
+        device = m.Customer.objects.get(first_name="Maria").devices.get(model="iPhone 13")
+        job = s.check_in(self.desk, self.store1, device, "Two digitizers", technician=self.sam,
+                         quote_lines=[(self.part("QP-DIG-IPD9"), 2)])
+        s.start_diagnosis(job, self.sam)
+        s.confirm_repair(job, self.sam, "Needs two")
+        self.assertEqual(job.status, m.AWAITING_PARTS)
+        return job
+
+    def test_d1_fr06_job_keeps_waiting_until_the_full_quantity_is_in_stock(self):
+        job = self.waiting_job_short_of_one()
+        self.assertEqual(s.release_waiting_jobs(self.store1, self.manager), [])
+        job.refresh_from_db()
+        self.assertEqual(job.status, m.AWAITING_PARTS)
+
+    def test_d1_fr06_job_resumes_when_the_full_quantity_is_in_stock_and_can_finish(self):
+        job = self.waiting_job_short_of_one()
+        s.adjust_stock(self.store1, self.part("QP-DIG-IPD9"), 1, "Found one", self.manager)
+        job.refresh_from_db()
+        self.assertEqual(job.status, m.IN_REPAIR)
+        s.complete_repair(job, self.sam, "Done")
+        self.assertEqual(self.on_hand("QP-DIG-IPD9"), 0)
+
+    def test_d2_fr06_count_increase_releases_a_waiting_job(self):
+        job = self.job("Battery swelling")
+        released = s.adjust_stock(self.store1, self.part("QP-BAT-S22"), 1, "Found in back room", self.manager)
+        job.refresh_from_db()
+        self.assertEqual([j.pk for j in released], [job.pk])
+        self.assertEqual(job.status, m.IN_REPAIR)
+
+    def test_d2_count_decrease_releases_nothing(self):
+        self.assertEqual(s.adjust_stock(self.store1, self.part("QP-ADH-KIT"), -1, "Damaged", self.manager), [])
+        self.assertEqual(self.job("Battery swelling").status, m.AWAITING_PARTS)
+
+    def test_d3_fr08_bad_payment_amounts_are_refused(self):
+        job = self.job("Will not charge")
+        for bad in ("ABCD", "NaN", "Infinity", "0.005", "100000000"):
+            with self.subTest(amount=bad), self.assertRaises(s.RuleError):
+                s.record_payment(job, self.desk, bad, "Cash")
+        self.assertEqual(job.payments.count(), 0)
+
+    def test_d3_fr08_non_numeric_amount_on_the_screen_shows_a_message(self):
+        self.login(self.desk)
+        job = self.job("Will not charge")
+        response = self.client.post(reverse("job_detail", args=[job.pk]),
+                                    {"action": "payment", "amount": "ABCD", "method": "Cash"}, follow=True)
+        self.assertContains(response, "Enter the amount as a number")
+
+    def test_d5_tampered_ids_do_not_cause_a_server_error(self):
+        self.client.raise_request_exception = False
+        self.login(self.desk)
+        maria = m.Customer.objects.get(first_name="Maria")
+        device = maria.devices.get(model="iPhone 13")
+        jobs_before = m.RepairJob.objects.count()
+        posts = [("checkin", {"customer_id": maria.pk, "device_id": device.pk, "reported_issue": "x", "technician_id": "abc"}),
+                 ("checkin", {"customer_id": maria.pk, "device_id": "abc", "reported_issue": "x"}),
+                 ("checkin", {"customer_id": "abc", "reported_issue": "x"}),
+                 ("appointment_new", {"customer_id": maria.pk, "slot": "2030-01-01T10:00:00"})]
+        results = [self.client.post(reverse(name), data).status_code for name, data in posts]
+        results.append(self.client.get(reverse("checkin") + "?appointment=abc").status_code)
+        self.login(self.manager)
+        results.append(self.client.post(reverse("inventory"), {"part_id": "abc", "action": "adjust"}).status_code)
+        self.login(self.owner)
+        results.append(self.client.post(reverse("switch_store"), {"store_id": "abc"}).status_code)
+        self.assertTrue(all(code < 500 for code in results), results)
+        self.assertEqual(m.RepairJob.objects.count(), jobs_before + 1)  # only the first post was a complete job
+
+    def test_d6_fr02_malformed_customer_email_is_refused(self):
+        self.login(self.desk)
+        before = m.Customer.objects.count()
+        response = self.client.post(reverse("checkin"), {
+            "first_name": "Riley", "last_name": "Test", "phone": "(919) 555-0999", "email": "not-an-email",
+            "device_model_id": self.listed("iPhone 13").pk, "reported_issue": "No sound"}, follow=True)
+        self.assertContains(response, "valid email address")
+        self.assertEqual(m.Customer.objects.count(), before)
+
+
+class ReceiptTests(Base):
+    """The customer signs a printed receipt at pickup (decision 2026-11-08, FR08)."""
+
+    def paid_job(self):
+        job = self.job("Will not charge")
+        s.record_payment(job, self.desk, "50.00", "Card")
+        return job
+
+    def test_fr08_release_needs_the_signed_receipt(self):
+        job = self.paid_job()
+        with self.assertRaises(s.RuleError):
+            s.release_device(job, self.desk, True, False)
+        job.refresh_from_db()
+        self.assertEqual(job.status, m.READY)
+        self.assertIsNone(job.signature_file)
+
+    def test_fr08_signed_release_records_the_paper_receipt(self):
+        job = self.paid_job()
+        s.release_device(job, self.desk, True, True)
+        job.refresh_from_db()
+        self.assertEqual(job.status, m.CLOSED)
+        self.assertEqual(job.signature_file, f"Paper receipt {job.ticket_number}")
+        self.assertIn("receipt signed", job.history.first().note)
+
+    def test_fr08_unrepaired_device_also_needs_the_signed_receipt(self):
+        job = self.job("Keyboard not responding")
+        with self.assertRaises(s.RuleError):
+            s.release_device(job, self.desk, True, False)
+        s.release_device(job, self.desk, True, True)
+        self.assertEqual(job.status, m.CLOSED)
+
+    def test_fr08_receipt_shows_charges_and_a_signature_line(self):
+        self.login(self.desk)
+        job = self.paid_job()
+        response = self.client.get(reverse("job_receipt", args=[job.pk]))
+        self.assertContains(response, job.ticket_number)
+        self.assertContains(response, "Customer signature")
+        self.assertContains(response, "50.00")
+
+    def test_fr08_receipt_waits_for_pickup(self):
+        self.login(self.desk)
+        job = self.job("Cracked screen")
+        response = self.client.get(reverse("job_receipt", args=[job.pk]), follow=True)
+        self.assertContains(response, "printed at pickup")
+
+    def test_nfr04_receipt_has_no_passcode_and_technician_cannot_open_it(self):
+        job = self.job("Cracked screen")
+        s.complete_repair(job, self.sam, "Done")
+        self.login(self.desk)
+        self.assertNotContains(self.client.get(reverse("job_receipt", args=[job.pk])), "482916")
+        self.login(self.sam)
+        self.assertEqual(self.client.get(reverse("job_receipt", args=[job.pk])).status_code, 403)
+
+
+class DeploymentTests(TestCase):
+    """Live-server setup from the Sprint 5 deployment plan (docs/sprint-5/drafts, 2026-11-06):
+    the setup_live command, the shared lockout cache and the WhiteNoise static-file settings."""
+
+    def _run_setup(self, answers, passwords, **options):
+        from unittest import mock
+        from django.core.management import call_command
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch("builtins.input", side_effect=answers), \
+                mock.patch("shop.management.commands.setup_live.getpass.getpass", side_effect=passwords):
+            call_command("setup_live", stdout=out, stderr=err, **options)
+        return out.getvalue(), err.getvalue()
+
+    STORE_ANSWERS = ["North", "1 Main St, Raleigh", "919-555-0101", "north@shop.example",
+                     "South", "2 Oak Ave, Raleigh", "919-555-0102", "south@shop.example"]
+    OWNER_ANSWERS = ["Pat", "Example", "Owner@Shop.example"]
+    GOOD_PASSWORD = "harbor-violet-71"
+
+    def test_setup_live_creates_stores_and_owner_with_hashed_password(self):
+        self._run_setup(self.STORE_ANSWERS + self.OWNER_ANSWERS, [self.GOOD_PASSWORD] * 2)
+        self.assertEqual(list(m.Store.objects.values_list("store_name", flat=True)), ["North", "South"])
+        owner = m.Employee.objects.get()
+        self.assertEqual((owner.role, owner.store.store_name, owner.email), (m.OWNER, "North", "Owner@shop.example"))
+        self.assertNotEqual(owner.password, self.GOOD_PASSWORD)
+        self.assertTrue(owner.check_password(self.GOOD_PASSWORD))
+        self.assertTrue(self.client.login(username=owner.email, password=self.GOOD_PASSWORD))
+
+    def test_setup_live_rejects_weak_and_mismatched_passwords_before_saving(self):
+        _, err = self._run_setup(self.STORE_ANSWERS + self.OWNER_ANSWERS,
+                                 ["short", "short", self.GOOD_PASSWORD, "different-one-22",
+                                  self.GOOD_PASSWORD, self.GOOD_PASSWORD])
+        self.assertIn("too short", err)
+        self.assertIn("do not match", err)
+        self.assertTrue(m.Employee.objects.get().check_password(self.GOOD_PASSWORD))
+
+    def test_setup_live_asks_again_for_an_invalid_email(self):
+        answers = ["North", "1 Main St", "919-555-0101", "not-an-email", "north@shop.example"] + self.OWNER_ANSWERS
+        _, err = self._run_setup(answers, [self.GOOD_PASSWORD] * 2, stores=1)
+        self.assertIn("valid email", err)
+        self.assertEqual(m.Store.objects.get().email_address, "north@shop.example")
+
+    def test_setup_live_refuses_a_database_that_already_has_records(self):
+        from django.core.management.base import CommandError
+        Command().load()
+        before = (m.Store.objects.count(), m.Employee.objects.count())
+        with self.assertRaises(CommandError):
+            self._run_setup([], [])
+        self.assertEqual((m.Store.objects.count(), m.Employee.objects.count()), before)
+
+    def test_lockout_count_works_with_the_database_cache(self):
+        from django.core.management import call_command
+        from django.test import override_settings
+        from . import auth
+        db_cache = {"default": {"BACKEND": "django.core.cache.backends.db.DatabaseCache", "LOCATION": "qp_cache"}}
+        with override_settings(CACHES=db_cache):
+            call_command("createcachetable", verbosity=0)
+            for _ in range(5):
+                auth.record_failure("someone@shop.example")
+            self.assertTrue(auth.is_locked("SOMEONE@shop.example"))
+            auth.clear_failures("someone@shop.example")
+            self.assertFalse(auth.is_locked("someone@shop.example"))
+
+    def _live_process(self, code, extra_env=None):
+        import os
+        import subprocess
+        import sys
+        from cryptography.fernet import Fernet
+        from django.conf import settings
+        env = {k: v for k, v in os.environ.items() if not k.startswith("QP_")}
+        env.update({"QP_DB_ENGINE": "sqlite", "QP_SECRET_KEY": "k" * 60,
+                    "QP_PASSCODE_KEY": Fernet.generate_key().decode(),
+                    "DJANGO_SETTINGS_MODULE": "quickphone.settings"}, **(extra_env or {}))
+        return subprocess.run([sys.executable, "-c", code], cwd=settings.BASE_DIR, env=env,
+                              capture_output=True, text=True)
+
+    def test_live_settings_use_shared_cache_and_whitenoise(self):
+        r = self._live_process(
+            "import django; django.setup(); from django.conf import settings as s; "
+            "print(s.CACHES['default']['BACKEND'], s.STORAGES['staticfiles']['BACKEND'], "
+            "'whitenoise.middleware.WhiteNoiseMiddleware' in s.MIDDLEWARE)")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.split(), ["django.core.cache.backends.db.DatabaseCache",
+                                            "whitenoise.storage.CompressedManifestStaticFilesStorage", "True"])
+
+    def test_live_migrate_creates_the_cache_table(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "live.sqlite3")
+            r = self._live_process(
+                "import django; django.setup(); from django.core.management import call_command; "
+                "call_command('migrate', verbosity=0); from django.db import connection; "
+                "print('qp_cache' in connection.introspection.table_names())",
+                {"QP_SQLITE_PATH": path})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout.strip(), "True")

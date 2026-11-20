@@ -131,7 +131,7 @@ def nav_context(request):
     current = request.resolver_match.url_name if request.resolver_match else ""
     section = {
         "checkin": "checkin", "appointment_new": "checkin", "appointment_edit": "checkin",
-        "jobs": "jobs", "job_detail": "jobs", "job_ticket": "jobs",
+        "jobs": "jobs", "job_detail": "jobs", "job_ticket": "jobs", "job_receipt": "jobs",
         "bench": "bench", "dashboard": "dashboard",
         "inventory": "inventory", "part_new": "inventory", "part_edit": "inventory", "inventory_import": "inventory",
         "po_list": "orders", "po_detail": "orders", "access": "access",

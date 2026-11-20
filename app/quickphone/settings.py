@@ -68,7 +68,8 @@ WSGI_APPLICATION = "quickphone.wsgi.application"
 # PostgreSQL is the database of record (Sprint 3 specification). QP_DB_ENGINE=sqlite
 # exists only so the automated tests can run on a machine without PostgreSQL.
 if os.environ.get("QP_DB_ENGINE", "postgresql") == "sqlite":
-    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "dev.sqlite3"}}
+    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3",
+                             "NAME": os.environ.get("QP_SQLITE_PATH", str(BASE_DIR / "dev.sqlite3"))}}
 else:
     DATABASES = {
         "default": {
@@ -100,6 +101,13 @@ AUTH_PASSWORD_VALIDATORS = [
 LOGIN_MAX_FAILURES = int(os.environ.get("QP_LOGIN_MAX_FAILURES", "5"))
 LOGIN_LOCK_MINUTES = int(os.environ.get("QP_LOGIN_LOCK_MINUTES", "15"))
 
+# The lockout count lives in Django's cache. On a live server (debug off) the cache is a database
+# table, so every Gunicorn worker and every restart sees the same count; migration 0005 creates
+# the table. Training and tests keep the in-memory cache.
+LIVE = not DEBUG and not TESTING
+if LIVE:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.db.DatabaseCache", "LOCATION": "qp_cache"}}
+
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "America/New_York"
 USE_I18N = False
@@ -107,6 +115,15 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# Live: collectstatic writes compressed, fingerprinted copies that WhiteNoise serves with long
+# cache headers. Training and tests serve the files as they are, with no collectstatic step.
+if LIVE:
+    # Serves the stylesheet from the app itself, so the live host needs no separate file server.
+    MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
+    STORAGES = {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+    }
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
 # Pickup notifications (FR12). In training, emails are written to files in
@@ -147,7 +164,7 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 # HSTS starts at 30 days; raise it once HTTPS is known to work on both stores' machines.
 # Set QP_BEHIND_PROXY=1 only when a reverse proxy terminates HTTPS and sets X-Forwarded-Proto.
 # The test client speaks plain HTTP, so tests check these settings in a separate process.
-if not DEBUG and not TESTING:
+if LIVE:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_SSL_REDIRECT = os.environ.get("QP_SSL_REDIRECT", "1") == "1"

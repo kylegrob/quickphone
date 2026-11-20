@@ -2,11 +2,11 @@
 {% block title %}Staff and suppliers{% endblock %}
 {% block content %}
 <div class="page-head"><div><h1>Staff, stores and suppliers</h1></div>
-<div class="actions"><a class="btn" href="{% url 'supplier_new' %}">Add supplier</a><a class="btn primary" href="{% url 'staff_new' %}">Add staff account</a></div></div>
+<div class="actions"><a class="btn" href="{% url 'repair_type_new' %}">Add repair type</a><a class="btn" href="{% url 'supplier_new' %}">Add supplier</a><a class="btn primary" href="{% url 'staff_new' %}">Add staff account</a></div></div>
 <div class="card table-card" style="margin-bottom:24px">
 <table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Store</th><th>Status</th></tr></thead>
 <tbody>{% for e in staff %}<tr><td><a href="{% url 'staff_edit' e.pk %}">{{ e }}</a></td><td>{{ e.email }}</td><td>{{ e.role }}</td><td>{{ e.store }}</td>
-  <td>{% if e.active_flag %}<span class="pill ok">Active</span>{% else %}<span class="pill">Inactive</span>{% endif %}</td></tr>{% endfor %}</tbody></table>
+  <td>{% if e.pk in locked %}<span class="pill failed">Locked</span>{% elif e.active_flag %}<span class="pill ok">Active</span>{% else %}<span class="pill">Inactive</span>{% endif %}</td></tr>{% endfor %}</tbody></table>
 </div>
 <div class="grid" style="grid-template-columns: 1fr 1fr">
 <section class="card table-card"><h2 style="padding-top:12px">Suppliers</h2>
@@ -17,4 +17,8 @@
 <table><thead><tr><th>Store</th><th>Email account for notifications</th></tr></thead>
 <tbody>{% for s in stores %}<tr><td><a href="{% url 'store_edit' s.pk %}">{{ s }}</a><div class="part-sub">{{ s.address }}</div></td><td>{{ s.email_address }}</td></tr>{% endfor %}</tbody></table></section>
 </div>
+<section class="card table-card" style="margin-top:24px"><h2 style="padding-top:12px">Repair types and appointment length</h2>
+<table><thead><tr><th>Repair type</th><th class="num">Minutes</th><th>Status</th></tr></thead>
+<tbody>{% for t in repair_types %}<tr><td><a href="{% url 'repair_type_edit' t.pk %}">{{ t }}</a></td><td class="num">{{ t.slot_minutes }}</td>
+  <td>{% if t.active_flag %}<span class="pill ok">Active</span>{% else %}<span class="pill">Inactive</span>{% endif %}</td></tr>{% endfor %}</tbody></table></section>
 {% endblock %}

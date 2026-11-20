@@ -4,6 +4,8 @@ Table and column names match the physical data dictionary. Two additions were
 approved during the Sprint 4 build (2026-10-28) and must be carried into the ERD:
 QUOTE_LINE in D3 (the parts on a quote) and PART.sku.
 """
+from datetime import timedelta
+
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.db import models
 from django.db.models import Q
@@ -115,13 +117,18 @@ class Customer(models.Model):
     customer_id = models.AutoField(primary_key=True)
     first_name = models.CharField(max_length=40)
     last_name = models.CharField(max_length=40)
-    phone = models.CharField(max_length=20, db_index=True)
+    # Phone or email may be blank, but not both: intake needs one way to reach the customer (2026-11-20).
+    phone = models.CharField(max_length=20, db_index=True, blank=True, default="")
     email = models.EmailField(max_length=120, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "customer"
         ordering = ["last_name", "first_name"]
+        constraints = [
+            models.CheckConstraint(condition=~Q(phone="") | (Q(email__isnull=False) & ~Q(email="")),
+                                   name="customer_contact_ck")
+        ]
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
@@ -164,6 +171,26 @@ class DeviceModel(models.Model):
 APPT_BOOKED, APPT_CHECKED_IN, APPT_CANCELLED = "Booked", "Checked In", "Cancelled"
 
 
+class RepairType(models.Model):
+    """What the customer books in for; sets how long the appointment holds a technician (2026-11-20)."""
+
+    repair_type_id = models.AutoField(primary_key=True)
+    type_name = models.CharField(max_length=60, unique=True)
+    slot_minutes = models.PositiveSmallIntegerField()
+    active_flag = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "repair_type"
+        ordering = ["type_name"]
+        constraints = [
+            models.CheckConstraint(condition=Q(slot_minutes__gte=15, slot_minutes__lte=480),
+                                   name="repair_type_minutes_ck")
+        ]
+
+    def __str__(self):
+        return self.type_name
+
+
 class Appointment(models.Model):
     appointment_id = models.AutoField(primary_key=True)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, db_column="customer_id")
@@ -172,6 +199,11 @@ class Appointment(models.Model):
         Employee, on_delete=models.PROTECT, db_column="technician_id", null=True, blank=True, related_name="+"
     )
     scheduled_at = models.DateTimeField()
+    repair_type = models.ForeignKey(
+        RepairType, on_delete=models.PROTECT, db_column="repair_type_id", null=True, blank=True
+    )
+    # Copied from the repair type when booked, so changing a type does not move existing bookings.
+    duration_minutes = models.PositiveSmallIntegerField(default=30)
     appt_status = models.CharField(
         max_length=12, default=APPT_BOOKED, choices=choices([APPT_BOOKED, APPT_CHECKED_IN, APPT_CANCELLED])
     )
@@ -184,6 +216,10 @@ class Appointment(models.Model):
                 condition=Q(appt_status__in=[APPT_BOOKED, APPT_CHECKED_IN, APPT_CANCELLED]), name="appt_status_ck"
             )
         ]
+
+    @property
+    def ends_at(self):
+        return self.scheduled_at + timedelta(minutes=self.duration_minutes)
 
 
 # D6 Suppliers ------------------------------------------------------------------

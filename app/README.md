@@ -38,8 +38,8 @@ The sample data has one Store 1 job at every step of the workflow, so each exerc
 | 5 | Record the customer's answer (Front Desk) | Repair jobs, open the iPhone 12 job (Awaiting Approval), Customer approved | Repair cannot start before approval; the history records who recorded it |
 | 6 | Repair and finish (Technician) | Open the iPhone 13 cracked screen job, check the parts list the quote filled in, add repair notes, Mark ready for pickup | The quote's parts come off stock when the job is marked ready; a job cannot be finished with more parts than are on hand |
 | 7 | Order parts (Manager) | Inventory, Add to PO on the Galaxy S22 battery, link the waiting job, Submit; Approve; Mark as ordered; Receive delivery | Every order needs approval; receiving puts the waiting job back to In Repair |
-| 8 | Pickup (Front Desk) | Open the Pixel 7 job (Ready for Pickup): Send pickup notification, try Release without paying, record payment, tick Photo ID checked, Release | A repaired device is never released before payment; the email comes from the store's account |
-| 9 | Return unrepaired (Front Desk) | Open the IdeaPad job (Returned Unrepaired) and release it with no payment | No fee is charged for a device that cannot be repaired |
+| 8 | Pickup (Front Desk) | Open the Pixel 7 job (Ready for Pickup): Send pickup notification, try Release without paying, record payment, Print receipt and have it signed, tick Photo ID checked and Customer signed the receipt, Release | A repaired device is never released before payment; the email comes from the store's account |
+| 9 | Return unrepaired (Front Desk) | Open the IdeaPad job (Returned Unrepaired) and print the receipt, have it signed, and release it with no payment | No fee is charged for a device that cannot be repaired |
 | 10 | Both stores (Owner) | Dashboard; switch to Store 2 | Open repairs and low stock side by side |
 
 Ask trainees to finish exercises 1, 4 and 8 without help; that is the acceptance check for NFR03. Note anything that confused them; it is evidence for the Sprint 5 manual and the Change Log.
@@ -54,6 +54,14 @@ Ask trainees to finish exercises 1, 4 and 8 without help; that is the acceptance
 - **The Owner sets screen access by role.** The Access screen (Owner only) is a table of seven screens by four roles; the defaults are the earlier fixed rules and only changed boxes are stored. It controls which screens a role can open. It does not change the rules inside a screen: only a Manager or the Owner approves a purchase order, technicians work only on their own jobs, customer phone and email stay hidden from the Technician role, and only the Owner can give the Owner role. Opening Staff, suppliers and stores lets a role create accounts in its own store.
 - Open for the owner: technicians now see customer phone and email on the check-in screen only; labor is charged per part times quantity, so a labor-only repair needs a zero-cost "service" part.
 
+## Changes from Kyle (Nov 20)
+
+- **Appointment length depends on the repair type.** Book appointment first asks for the repair type (Screen replacement, Battery replacement and so on); the time slots then show only start times where that length fits. A booking holds its technician for its whole length, and one that would run past closing (the last slot plus one slot) cannot be picked. The Owner or a Manager changes the lengths, in 15-minute steps, under Staff, stores and suppliers. A booking keeps the length it was made with if the type changes later.
+- **Intake needs a phone or an email.** A new customer can have either or both, but not neither; the database refuses a customer with no contact. Customer search accepts an email as well as a phone number, and a duplicate email is refused like a duplicate phone.
+- **Approvers are emailed when an order is submitted.** The store's Managers and the Owner (not the person who submitted it) get an email from the store account; a failed email does not undo the submission.
+- **A payment recorded by mistake can be deleted** from the job page until the device is released. The job history keeps what was deleted and by whom.
+- **The technician bench shows whether the pickup notification was sent**, on the job and in the job list, with the Send button beside it.
+
 ## Business rules decided for this build (Oct 28)
 
 These answer open questions in `docs/project-context.md`. The documents listed in that file still need updating to match.
@@ -66,15 +74,21 @@ These answer open questions in `docs/project-context.md`. The documents listed i
 - **A Manager may approve an order they created**; history keeps both names. Set `ALLOW_SELF_APPROVAL_OF_PO` in `shop/permissions.py` to change this.
 - **PART has a SKU** (Prototype A shows one).
 
-Still to confirm with the owner: store hours and appointment slot length (placeholders in `settings.py`), whether intake must collect an email address, and ticket printers.
+Still to confirm with the owner: store hours and the slot grid (placeholders in `settings.py`), the minutes for each repair type (placeholders in `shop/repair_types.py`), and ticket printers.
 
 ## Tests
 
-`$env:QP_DB_ENGINE='sqlite'; .venv\Scripts\python app\manage.py test shop` runs 94 tests named after the catalog's acceptance checks, including the security cases: a Technician approving an order, a Front Desk user opening inventory, an unpaid release, stock below zero, a Manager creating an Owner account, and the `SecurityTests` class (sign-in lockout, weak passwords, other-store records by ID, CSRF, settings that refuse to start without keys). `QP_DB_ENGINE=sqlite` exists only so tests and demos can run on a machine without PostgreSQL.
+`$env:QP_DB_ENGINE='sqlite'; .venv\Scripts\python app\manage.py test shop` runs 141 tests named after the catalog's acceptance checks, including the security cases: a Technician approving an order, a Front Desk user opening inventory, an unpaid release, stock below zero, a Manager creating an Owner account, and the `SecurityTests` class (sign-in lockout, weak passwords, other-store records by ID, CSRF, settings that refuse to start without keys), and `DeploymentTests` (the `setup_live` command, the shared lockout cache, and the live settings and migration). `QP_DB_ENGINE=sqlite` exists only so tests and demos can run on a machine without PostgreSQL.
 
 ## Security (2026-11-06)
 
-See `docs/sprint-4/drafts/security-analysis.md` for assets, threats, controls and residual risks. A live deployment sets, at minimum, `QP_SECRET_KEY` (50+ random characters), `QP_PASSCODE_KEY` (a Fernet key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`), `QP_ALLOWED_HOSTS` and the database and SMTP variables, and serves the app over HTTPS. Keep the passcode key backed up apart from the database: without it no stored passcode can be read. With debug off, cookies are HTTPS-only, HTTP is redirected (`QP_SSL_REDIRECT`), HSTS starts at 30 days (`QP_HSTS_SECONDS`), and `QP_BEHIND_PROXY=1` trusts a proxy's `X-Forwarded-Proto`. Sessions end after 30 idle minutes (`QP_SESSION_MINUTES`) or when the browser closes. Five failed sign-ins lock that account for 15 minutes (`QP_LOGIN_MAX_FAILURES`, `QP_LOGIN_LOCK_MINUTES`); the count lives in server memory, so a multi-process server needs a shared cache. New passwords need 10+ characters and cannot be common, all digits, or close to the person's name or email. A device's passcode is deleted when the device is released.
+See `docs/sprint-4/drafts/security-analysis.md` for assets, threats, controls and residual risks. A live deployment sets, at minimum, `QP_SECRET_KEY` (50+ random characters), `QP_PASSCODE_KEY` (a Fernet key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`), `QP_ALLOWED_HOSTS` and the database and SMTP variables, and serves the app over HTTPS. Keep the passcode key backed up apart from the database: without it no stored passcode can be read. With debug off, cookies are HTTPS-only, HTTP is redirected (`QP_SSL_REDIRECT`), HSTS starts at 30 days (`QP_HSTS_SECONDS`), and `QP_BEHIND_PROXY=1` trusts a proxy's `X-Forwarded-Proto`. Sessions end after 30 idle minutes (`QP_SESSION_MINUTES`) or when the browser closes. Five failed sign-ins lock that account for 15 minutes (`QP_LOGIN_MAX_FAILURES`, `QP_LOGIN_LOCK_MINUTES`); with debug off the count is kept in a database cache table (`qp_cache`, created by `migrate`), so every server process sees it. Training keeps it in memory. New passwords need 10+ characters and cannot be common, all digits, or close to the person's name or email. A device's passcode is deleted when the device is released.
+
+## Deploying a live system (2026-11-06)
+
+See `docs/sprint-5/drafts/Sprint 5 - Implementation and Deployment Plan.md` for the hosting choice and go-live plan. On the host, the build step is `pip install -r app/requirements.txt` then `python app/manage.py collectstatic --noinput`, the release step is `python app/manage.py migrate`, and the start command is `gunicorn --chdir app quickphone.wsgi --workers 2 --threads 4`. With debug off, WhiteNoise serves the stylesheet from the app, so no separate file server is needed. Set the variables in Security above plus `QP_BEHIND_PROXY=1`, `QP_EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend` and the `QP_EMAIL_` login. Never run `seed_training` on a live system (it refuses with debug off).
+
+A new live database starts empty. Run `python app/manage.py setup_live` once, at a terminal on the host: it asks for each store's name, address, phone and sending email, then the Owner's name, sign-in email and password (typed twice and never shown), and refuses to run if the database already has a store or an account. The Owner then signs in and adds staff on the Staff screen. `setup_live --stores 1` creates a single store.
 
 ## Where things are
 

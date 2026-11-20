@@ -10,6 +10,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from .. import models as m
 from .. import services
 from ..permissions import NAV, SCREENS, can_open, role_required, screen_required
+from ..auth import clear_failures, is_locked, minutes_left
+from .common import keep_typed, to_int
 
 HOME = {m.OWNER: "dashboard", m.MANAGER: "inventory", m.TECHNICIAN: "bench", m.FRONT_DESK: "checkin"}
 
@@ -28,7 +30,7 @@ def home(request):
 @role_required(m.OWNER)
 def switch_store(request):
     if request.method == "POST":
-        store = get_object_or_404(m.Store, pk=request.POST.get("store_id"))
+        store = get_object_or_404(m.Store, pk=to_int(request.POST.get("store_id")))
         request.session["store_id"] = store.pk
     target = request.POST.get("next", "")
     if not url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}):
@@ -62,7 +64,9 @@ def _staff_scope(user):
 def staff(request):
     return render(request, "shop/staff.html", {
         "staff": _staff_scope(request.user).order_by("store_id", "role", "first_name"),
+        "locked": {e.pk for e in _staff_scope(request.user) if is_locked(e.email)},
         "suppliers": m.Supplier.objects.all(),
+        "repair_types": m.RepairType.objects.all(),
         "stores": m.Store.objects.all() if request.user.role == m.OWNER else [request.user.store],
     })
 
@@ -75,12 +79,16 @@ def staff_edit(request, pk=None):
         raise PermissionDenied("Only the Owner can change an Owner account.")
     stores = m.Store.objects.all() if user.role == m.OWNER else m.Store.objects.filter(pk=user.store_id)
     roles = [r for r in m.ROLES if services.can_assign_role(user, r)]
+    if request.method == "POST" and pk and request.POST.get("action") == "unlock":
+        clear_failures(employee.email)
+        messages.success(request, f"{employee} can sign in again.")
+        return redirect("staff_edit", employee.pk)
     if request.method == "POST":
         p, errors = request.POST, []
         role = p.get("role")
         if not services.can_assign_role(user, role):
             errors.append("Only the Owner can give the Owner role.")
-        store = stores.filter(pk=p.get("store_id") or 0).first()
+        store = stores.filter(pk=to_int(p.get("store_id"))).first()
         if not store:
             errors.append("Pick a store.")
         email = p.get("email", "").strip().lower()
@@ -105,11 +113,35 @@ def staff_edit(request, pk=None):
             if password:
                 employee.set_password(password)
             employee.save()
+            if password:
+                clear_failures(employee.email)  # a new password also ends a lock
             messages.success(request, f"{employee} saved.")
             return redirect("staff")
         for e in errors:
             messages.error(request, e)
-    return render(request, "shop/staff_form.html", {"employee": employee, "stores": stores, "roles": roles})
+    stored_email = employee.email
+    invalid = set()
+    if request.method == "POST":  # refused: show what was typed (never the password)
+        keep_typed(employee, request.POST, ["first_name", "last_name", "email"])
+        if request.POST.get("role") in roles:
+            employee.role = request.POST["role"]
+        employee.store_id = to_int(request.POST.get("store_id")) or employee.store_id
+        for e in errors:
+            if e == "Enter the first name, last name and email.":
+                invalid |= {f for f in ("first_name", "last_name", "email") if not request.POST.get(f, "").strip()}
+            elif e == "Another account uses this email.":
+                invalid.add("email")
+            elif e == "Pick a store.":
+                invalid.add("store")
+            elif "role" in e:
+                invalid.add("role")
+            else:  # "Set a starting password." and the password validators' messages
+                invalid.add("password")
+    locked = bool(pk) and is_locked(stored_email)
+    return render(request, "shop/staff_form.html", {
+        "employee": employee, "stores": stores, "roles": roles, "invalid": invalid,
+        "locked": locked, "lock_minutes": minutes_left(stored_email) if locked else None,
+    })
 
 
 @screen_required("staff")
@@ -130,7 +162,39 @@ def supplier_edit(request, pk=None):
             supplier.save()
             messages.success(request, f"{supplier} saved.")
             return redirect("staff")
-    return render(request, "shop/supplier_form.html", {"supplier": supplier})
+        keep_typed(supplier, p, ["supplier_name", "contact_name", "phone", "email"])
+    invalid = {"supplier_name"} if request.method == "POST" else set()
+    return render(request, "shop/supplier_form.html", {"supplier": supplier, "invalid": invalid})
+
+
+@screen_required("staff")
+def repair_type_edit(request, pk=None):
+    """How long an appointment for each kind of repair holds a technician (2026-11-20)."""
+    repair_type = get_object_or_404(m.RepairType, pk=pk) if pk else m.RepairType()
+    if request.method == "POST":
+        p = request.POST
+        name, minutes = " ".join(p.get("type_name", "").split()), to_int(p.get("slot_minutes"))
+        low, high = services.MIN_APPOINTMENT_MINUTES, services.MAX_APPOINTMENT_MINUTES
+        if not name:
+            messages.error(request, "Enter the repair type's name.")
+        elif len(name) > 60:
+            messages.error(request, "The name is too long.")
+        elif m.RepairType.objects.filter(type_name__iexact=name).exclude(pk=repair_type.pk).exists():
+            messages.error(request, "A repair type with this name exists.")
+        elif minutes is None or not low <= minutes <= high or minutes % 15:
+            messages.error(request, f"Set the appointment length in steps of 15, from {low} to {high} minutes.")
+        else:
+            repair_type.type_name, repair_type.slot_minutes = name, minutes
+            repair_type.active_flag = p.get("active_flag") == "on" if pk else True
+            repair_type.save()
+            messages.success(request, f"{repair_type} saved. Appointments already booked keep their length.")
+            return redirect("staff")
+        keep_typed(repair_type, p, ["type_name", "slot_minutes"])
+        invalid = {"slot_minutes"} if name and len(name) <= 60 and not m.RepairType.objects.filter(
+            type_name__iexact=name).exclude(pk=repair_type.pk).exists() else {"type_name"}
+    else:
+        invalid = set()
+    return render(request, "shop/repair_type_form.html", {"repair_type": repair_type, "invalid": invalid})
 
 
 @screen_required("staff")
