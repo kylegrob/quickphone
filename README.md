@@ -10,14 +10,6 @@ MIS 4173 (Systems Analysis, Design and Development), Fall 2026, Professor John D
 README.md               You are here
 AGENTS.md               Instructions for AI assistants (Claude, ChatGPT, Copilot ...)
 CLAUDE.md               Points Claude Code at AGENTS.md
-docs/
-  README.md             Index of every document, with its sprint and status
-  project-context.md    One-page brief: scope, decisions, confirmed requirements, open items
-  admin/                Team contract, Student Consulting MOU, AI Decision Log, Change Log, Time Log
-  course/               Course rules: project spec, AI guidelines, sprint presentation briefs
-  sprint-1/, sprint-2/… Deliverables as submitted, one folder per sprint
-  sprint-3/drafts/      Revised work not yet final (replaces older versions when submitted)
-  _text/                Auto-generated Markdown copies of every .docx/.pptx/.xlsx
 app/                    Sprint 4 working system (Django + PostgreSQL); see app/README.md
 tools/extract_text.py   Regenerates docs/_text/
 ```
