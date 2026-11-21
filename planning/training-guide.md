@@ -30,3 +30,10 @@ The sample data has one Store 1 job at every step of the workflow, so each exerc
 | 10 | Both stores (Owner) | Dashboard; switch to Store 2 | Open repairs and low stock side by side |
 
 Ask trainees to finish exercises 1, 4 and 8 without help; that is the acceptance check for usability (NFR03). Note anything that confused them, since it shows where the screens or the written manual need work.
+
+
+## Correcting payments and reviewing security
+
+Before release, open the job, find the mistaken payment, enter a reason and choose **Void payment**. The payment stays on the job marked Voided with the reason, person and time. It no longer counts toward the paid total or appears as a payment on the customer receipt; record the correct payment before releasing a repaired device. Closed jobs cannot be corrected this way. A Technician needs Owner-granted Repair jobs access to void a payment.
+
+Managers may create and update Front Desk and Technician accounts at their home store. Ask the Owner to create or change another Manager account. A Manager may update their own profile, keeping their role and active status. Granting the Staff screen to another role does not grant account-management rights. The Owner opens **Audit records** to review security events; this page is read-only. A non-Owner granted Dashboard access sees only their home store.

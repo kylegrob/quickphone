@@ -84,6 +84,8 @@ class LockoutAuthenticationForm(AuthenticationForm):
     def clean(self):
         email = self.cleaned_data.get("username")
         if is_locked(email):
+            from .audit import record, login_identifier
+            record("sign_in", outcome="Failure", login_hash=login_identifier(email), locked=True)
             self.locked = True
             raise forms.ValidationError(locked_message(email), code="locked")
         try:

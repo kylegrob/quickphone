@@ -11,8 +11,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from .. import models as m
 from .. import services
-from ..crypto import decrypt_passcode
-from ..permissions import can_see_passcode, screen_required
+from ..audit import viewed_passcode
+from ..permissions import screen_required
 from .common import attempt, picker_parts, quote_lines, to_int
 from .desk import _steps
 
@@ -96,7 +96,7 @@ def bench(request, pk=None):
             "used": job.parts.filter(part_status=m.PART_USED).select_related("part"),
             "needed": job.parts.filter(part_status=m.PART_NEEDED).select_related("part", "purchase_order"),
             "history": job.history.select_related("changed_by"),
-            "passcode": decrypt_passcode(job.device_passcode) if can_see_passcode(user, job) else None,
+            "passcode": viewed_passcode(user, job),
             "has_email": bool(job.customer.email),
             "kept": kept,
         })

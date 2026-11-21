@@ -48,3 +48,10 @@ A new live database starts empty. Run `python app/manage.py setup_live` once, at
 | `shop/tests.py` | Automated tests |
 | `shop/management/commands/seed_training.py` | Sample data for training |
 | `shop/management/commands/setup_live.py` | First-time setup of a live database |
+
+
+## Security changes and database upgrade (November 20)
+
+Apply migration `0008_payment_voids_audit_events` with `python app/manage.py migrate` before running this version against an existing database. Existing payments keep Paid status; new void fields start empty. A mistaken payment is now retained as Voided and requires a reason, with actor/time recorded; voids do not count toward the paid total or appear as payments on the receipt. The UI no longer deletes payment rows. Prior deleted rows cannot be reconstructed by this migration. Payment recording, voiding and release share a job-row transaction lock; verify simultaneous operations on PostgreSQL before live use.
+
+The Owner can open Audit records to review security events. AuditEvent belongs to D7 Staff & Stores; payment void fields belong to D3 Repair Jobs. Audit events are read-only through the app and ORM update/delete operations; direct database administrator access remains outside that protection. Include the audit table in protected backups and agree its retention period before live use. Login failures store a hashed identifier, never the submitted password; passcode-view events identify the job and viewer without storing the passcode. Staff-screen overrides cannot grant account management: only Owner/Manager manage accounts, and only Owner manages other Manager/Owner accounts. Dashboard overrides show a non-Owner only their home store. Technician contact/lookup/assigned-passcode access and Manager/Owner PO self-approval remain in place.

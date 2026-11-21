@@ -64,6 +64,8 @@ def screen_required(screen):
                 from django.contrib.auth.views import redirect_to_login
                 return redirect_to_login(request.get_full_path())
             if not can_open(request, screen):
+                from .audit import record
+                record("screen_access", request.user, outcome="Denied", screen=screen)
                 raise PermissionDenied("Your role cannot use this page.")
             return view(request, *args, **kwargs)
         return wrapped
@@ -78,6 +80,8 @@ def role_required(*roles):
                 from django.contrib.auth.views import redirect_to_login
                 return redirect_to_login(request.get_full_path())
             if request.user.role not in roles:
+                from .audit import record
+                record("role_access", request.user, outcome="Denied", view=view.__name__)
                 raise PermissionDenied("Your role cannot use this page.")
             return view(request, *args, **kwargs)
         return wrapped
@@ -140,7 +144,8 @@ def nav_context(request):
     }.get(current, "")
     ctx = {
         "nav_items": [(reverse(url), label, key == section) for key, label, url in NAV if can_open(request, key)]
-        + ([(reverse("access"), "Access", section == "access")] if user.role == OWNER else []),
+        + ([(reverse("access"), "Access", section == "access"),
+            (reverse("audit_events"), "Audit records", current == "audit_events")] if user.role == OWNER else []),
         "active_store": request.store,
         "open_screens": {key: can_open(request, key) for key in SCREENS},
         "can_contact": can_see_contact(user),

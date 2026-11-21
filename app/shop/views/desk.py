@@ -13,8 +13,8 @@ from django.utils import timezone
 
 from .. import models as m
 from .. import services
-from ..crypto import decrypt_passcode
-from ..permissions import (EMAIL_ROLES, can_open, can_see_contact, can_see_passcode, role_required,
+from ..audit import viewed_passcode
+from ..permissions import (EMAIL_ROLES, can_open, can_see_contact, role_required,
                            screen_required)
 from .common import attempt, get_job, picker_parts, quote_lines, store_jobs, to_int
 
@@ -272,9 +272,9 @@ def job_detail(request, pk):
         elif action == "payment":
             attempt(request, services.record_payment, job, user, request.POST.get("amount") or "0",
                     request.POST.get("method"), success="Payment recorded.")
-        elif action == "delete_payment":
-            attempt(request, services.delete_payment, job, user, to_int(request.POST.get("payment_id")),
-                    success="Payment deleted.")
+        elif action == "void_payment":
+            attempt(request, services.void_payment, job, user, to_int(request.POST.get("payment_id")),
+                    request.POST.get("reason", ""), success="Payment voided.")
         elif action == "release":
             attempt(request, services.release_device, job, user, request.POST.get("id_verified") == "on",
                     request.POST.get("receipt_signed") == "on", success=f"{job.ticket_number} released and closed.")
@@ -285,7 +285,7 @@ def job_detail(request, pk):
     quote = job.current_quote
     return render(request, "shop/job_detail.html", {
         "job": job, "quote": quote, "quotes": job.quotes.order_by("quote_id").prefetch_related("lines__part"), "steps": _steps(job),
-        "passcode": decrypt_passcode(job.device_passcode) if can_see_passcode(request.user, job) else None,
+        "passcode": viewed_passcode(request.user, job),
         "can_email": request.user.role in EMAIL_ROLES, "can_contact": can_see_contact(request.user), "technicians": services.repairers(job.store),
         "due": max((job.final_cost or 0) - job.amount_paid, 0),
         "history": job.history.select_related("changed_by"), "past_jobs": job.device.jobs.exclude(pk=job.pk),

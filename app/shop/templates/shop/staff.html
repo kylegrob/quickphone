@@ -2,10 +2,10 @@
 {% block title %}Staff and suppliers{% endblock %}
 {% block content %}
 <div class="page-head"><div><h1>Staff, stores and suppliers</h1></div>
-<div class="actions"><a class="btn" href="{% url 'repair_type_new' %}">Add repair type</a><a class="btn" href="{% url 'supplier_new' %}">Add supplier</a><a class="btn primary" href="{% url 'staff_new' %}">Add staff account</a></div></div>
+<div class="actions"><a class="btn" href="{% url 'repair_type_new' %}">Add repair type</a><a class="btn" href="{% url 'supplier_new' %}">Add supplier</a>{% if can_manage_staff %}<a class="btn primary" href="{% url 'staff_new' %}">Add staff account</a>{% endif %}</div></div>
 <div class="card table-card" style="margin-bottom:24px">
 <table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Store</th><th>Status</th></tr></thead>
-<tbody>{% for e in staff %}<tr><td><a href="{% url 'staff_edit' e.pk %}">{{ e }}</a></td><td>{{ e.email }}</td><td>{{ e.role }}</td><td>{{ e.store }}</td>
+<tbody>{% for e in staff %}<tr><td>{% if user.is_owner or user.role == "Manager" and e.role != "Owner" and e.role != "Manager" or user.pk == e.pk and can_manage_staff %}<a href="{% url 'staff_edit' e.pk %}">{{ e }}</a>{% else %}{{ e }}{% endif %}</td><td>{{ e.email }}</td><td>{{ e.role }}</td><td>{{ e.store }}</td>
   <td>{% if e.pk in locked %}<span class="pill failed">Locked</span>{% elif e.active_flag %}<span class="pill ok">Active</span>{% else %}<span class="pill">Inactive</span>{% endif %}</td></tr>{% endfor %}</tbody></table>
 </div>
 <div class="grid" style="grid-template-columns: 1fr 1fr">

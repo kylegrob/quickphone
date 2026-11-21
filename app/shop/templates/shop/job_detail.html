@@ -2,8 +2,8 @@
 {% block title %}{{ job.ticket_number }}{% endblock %}
 {% block content %}
 <div class="page-head">
-  <div><h1><span class="mono">{{ job.ticket_number }}</span> · {{ job.device }}</h1>
-  <p>{{ job.store.store_name }} · checked in {{ job.check_in_at|date:"M j, g:i A" }}</p></div>
+  <div><h1><span class="mono">{{ job.ticket_number }}</span> Â· {{ job.device }}</h1>
+  <p>{{ job.store.store_name }} Â· checked in {{ job.check_in_at|date:"M j, g:i A" }}</p></div>
   <div class="actions"><span class="pill {{ job.status|slugify }}" style="font-size:16px">{{ job.status }}</span>
   <a class="btn" href="{% url 'job_ticket' job.pk %}?print=1">Reprint ticket and tag</a></div>
 </div>
@@ -13,8 +13,8 @@
   <section class="card">
     {% include "shop/_steps.html" %}
     <dl class="kv">
-      <dt>Customer</dt><dd><strong>{{ job.customer }}</strong>{% if can_contact %} · {{ job.customer.phone }} · {{ job.customer.email|default:"no email on file" }}{% endif %}</dd>
-      <dt>Device</dt><dd>{{ job.device.device_type|default:"" }} {{ job.device }}{% if job.device.serial_or_imei %} · <span class="mono">{{ job.device.serial_or_imei }}</span>{% endif %}</dd>
+      <dt>Customer</dt><dd><strong>{{ job.customer }}</strong>{% if can_contact %} Â· {{ job.customer.phone }} Â· {{ job.customer.email|default:"no email on file" }}{% endif %}</dd>
+      <dt>Device</dt><dd>{{ job.device.device_type|default:"" }} {{ job.device }}{% if job.device.serial_or_imei %} Â· <span class="mono">{{ job.device.serial_or_imei }}</span>{% endif %}</dd>
       <dt>Reported problem</dt><dd>{{ job.reported_issue }}</dd>
       <dt>Condition</dt><dd>{{ job.intake_condition|default:"Not recorded" }}</dd>
       <dt>Passcode</dt><dd>{% if not job.device_passcode %}None given{% elif passcode %}<span class="mono">{{ passcode }}</span>{% else %}On file (assigned technician, Managers and Owner only){% endif %}</dd>
@@ -65,9 +65,15 @@
       <dt>Paid</dt><dd>${{ job.amount_paid|floatformat:2 }}</dd>
       {% if job.status == "Ready for Pickup" %}<dt><strong>Still due</strong></dt><dd><strong>${{ due|floatformat:2 }}</strong></dd>{% endif %}
     </dl>
-    {% for p in job.payments.all %}<form method="post" class="inline-form small muted" onsubmit="return confirm('Delete this ${{ p.amount }} {{ p.method }} payment? Only do this if it was recorded by mistake.')">{% csrf_token %}<input type="hidden" name="action" value="delete_payment"><input type="hidden" name="payment_id" value="{{ p.pk }}">
-      <span style="flex:1">{{ p.paid_at|date:"M j, g:i A" }}: ${{ p.amount }} {{ p.method }} <span class="pill paid">{{ p.payment_status }}</span></span>
-      <button class="btn small danger" aria-label="Delete the ${{ p.amount }} {{ p.method }} payment">Delete</button></form>{% endfor %}
+    {% for p in job.payments.all %}
+    <div class="small"><p>{{ p.paid_at|date:"M j, g:i A" }}: ${{ p.amount }} {{ p.method }} <span class="pill">{{ p.payment_status }}</span></p>
+    {% if p.payment_status == "Paid" %}
+    <form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="action" value="void_payment"><input type="hidden" name="payment_id" value="{{ p.pk }}">
+      <label for="void-reason-{{ p.pk }}">Reason for voiding</label><input id="void-reason-{{ p.pk }}" name="reason" maxlength="200" required>
+      <button class="btn small danger">Void payment</button>
+    </form>
+    {% else %}<p class="muted">Voided {{ p.voided_at|date:"M j, g:i A" }} by {{ p.voided_by }}: {{ p.void_reason }}</p>{% endif %}</div>
+    {% endfor %}
     {% if job.status == "Ready for Pickup" and due > 0 or job.status == "Returned Unrepaired" %}
     <form method="post">{% csrf_token %}<input type="hidden" name="action" value="payment">
       <h3>{% if job.status == "Returned Unrepaired" %}Fee (optional){% else %}Record payment{% endif %}</h3>
@@ -95,7 +101,7 @@
   {% endif %}
 
   {% if job.status == "Closed" %}
-  <section class="card"><h2>Released</h2><p>{{ job.picked_up_at|date:"M j, g:i A" }} · photo ID checked · receipt signed · paid ${{ job.amount_paid|floatformat:2 }}</p><p><a class="btn block" href="{% url 'job_receipt' job.pk %}?print=1">Reprint receipt</a></p></section>
+  <section class="card"><h2>Released</h2><p>{{ job.picked_up_at|date:"M j, g:i A" }} Â· photo ID checked Â· receipt signed Â· paid ${{ job.amount_paid|floatformat:2 }}</p><p><a class="btn block" href="{% url 'job_receipt' job.pk %}?print=1">Reprint receipt</a></p></section>
   {% endif %}
 </aside>
 </div>

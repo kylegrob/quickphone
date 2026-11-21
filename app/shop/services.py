@@ -480,8 +480,21 @@ def send_pickup_notification(job, user):
 
 # 6.0 Record Device Release (FR08, UC-06) ---------------------------------------
 
+def _lock_payment_job(job, user):
+    if not user.is_authenticated or (user.role != m.OWNER and user.store_id != job.store_id):
+        raise RuleError("You cannot change payments at another store.")
+    defaults = m.OWNER, m.MANAGER, m.FRONT_DESK
+    access = m.ScreenAccess.objects.filter(role=user.role, screen="jobs").first()
+    if not (access.allowed if access else user.role in defaults):
+        raise RuleError("Your role cannot use Repair jobs.")
+    m.RepairJob.objects.select_for_update().get(pk=job.pk)
+    job.refresh_from_db()
+
+
+@transaction.atomic
 def record_payment(job, user, amount, method):
     """Records the fact of payment taken at the register; the system takes no payments."""
+    _lock_payment_job(job, user)
     try:
         amount = Decimal(amount)
     except InvalidOperation:
@@ -499,24 +512,36 @@ def record_payment(job, user, amount, method):
                                       note=f"Payment ${amount:.2f} {method}")
 
 
-def delete_payment(job, user, payment_id):
-    """Removes a payment recorded by mistake, before the device is released (2026-11-20).
-    The history keeps who deleted it and what it was, so the audit trail survives (NFR02)."""
+@transaction.atomic
+def void_payment(job, user, payment_id, reason):
+    """Keep the original payment and attribute its correction; voids do not count as paid."""
+    from .audit import record
+    _lock_payment_job(job, user)
     if job.status not in (m.READY, m.UNREPAIRED):
-        raise RuleError("A payment can be deleted only before the device is released.")
-    payment = job.payments.filter(pk=payment_id).first()
+        raise RuleError("A payment can be voided only before the device is released.")
+    reason = (reason or "").strip()
+    if not reason or len(reason) > 200:
+        raise RuleError("Enter a reason for voiding the payment (200 characters or fewer).")
+    payment = job.payments.select_for_update().filter(pk=payment_id).first()
     if not payment:
         raise RuleError("That payment is not on this job.")
-    note = f"Payment ${payment.amount:.2f} {payment.method} from {timezone.localtime(payment.paid_at):%b %d %I:%M %p} deleted (recorded by mistake)"
-    payment.delete()
-    m.JobStatusHistory.objects.create(repair_job=job, status=job.status, changed_by=user, note=note)
+    if payment.payment_status != "Paid":
+        raise RuleError("That payment is already voided.")
+    payment.payment_status, payment.void_reason = "Voided", reason
+    payment.voided_by, payment.voided_at = user, timezone.now()
+    payment.save(update_fields=["payment_status", "void_reason", "voided_by", "voided_at"])
+    m.JobStatusHistory.objects.create(repair_job=job, status=job.status, changed_by=user,
+                                      note=f"Payment ${payment.amount:.2f} {payment.method} voided: {reason}")
+    record("payment_voided", user, payment, store=job.store, job_id=job.pk, reason=reason)
 
 
+@transaction.atomic
 def release_device(job, user, id_verified, receipt_signed):
     """A repaired device is released only after payment is recorded; no override.
     A declined or unrepairable device may go back with no payment (decision 2026-10-28).
     The customer signs the printed receipt at pickup (decision 2026-11-08); the paper is the signature,
     and signature_file records that it exists."""
+    _lock_payment_job(job, user)
     if job.status not in (m.READY, m.UNREPAIRED):
         raise RuleError("Only a job Ready for Pickup or Returned Unrepaired can be released.")
     if not id_verified:
@@ -704,5 +729,6 @@ def release_waiting_jobs(store, user, note="Parts received"):
 # 9.0 Maintain Shop Records (FR11, FR14) ----------------------------------------
 
 def can_assign_role(user, role):
-    """Only the Owner can give the Owner role (FR14)."""
-    return role in m.ROLES and (role != m.OWNER or user.role == m.OWNER)
+    """Owner manages all roles; Managers assign only Front Desk or Technician (FR14)."""
+    return role in m.ROLES and (user.role == m.OWNER or
+                               (user.role == m.MANAGER and role in (m.FRONT_DESK, m.TECHNICIAN)))

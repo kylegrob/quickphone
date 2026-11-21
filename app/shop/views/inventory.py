@@ -107,6 +107,9 @@ def part_edit(request, pk=None):
             part.active_flag = p.get("active_flag") == "on" if pk else True
             with transaction.atomic():
                 part.save()
+                from ..audit import record
+                record("part_updated" if pk else "part_created", request.user, part,
+                       store=request.store)
                 if not pk:
                     m.StorePartStock.objects.create(store=request.store, part=part,
                                                     reorder_point=max(to_int(p.get("reorder_point")), 0))

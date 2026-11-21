@@ -557,59 +557,61 @@ class POApprovalEmailTests(Base):
         self.assertContains(r, "Emailed")
 
 
-class DeletePaymentTests(Base):
-    """2026-11-20: a payment recorded by mistake can be deleted before release; history keeps it."""
+class VoidPaymentTests(Base):
+    """2026-11-20: a payment recorded by mistake can be voided before release; history keeps it."""
 
-    def test_mistaken_payment_is_deleted_and_logged(self):
+    def test_mistaken_payment_is_voided_and_logged(self):
         job = self.job("Will not charge")
         s.record_payment(job, self.desk, "5.00", "Cash")
         pay = job.payments.get()
-        s.delete_payment(job, self.desk, pay.pk)
-        self.assertFalse(job.payments.exists())
+        s.void_payment(job, self.desk, pay.pk, "Wrong amount")
+        self.assertEqual(job.payments.get().payment_status, "Voided")
+        self.assertEqual(job.amount_paid, 0)
         note = job.history.order_by("-pk").first()
         self.assertEqual(note.changed_by, self.desk)
         self.assertIn("$5.00 Cash", note.note)
-        self.assertIn("deleted", note.note)
+        self.assertIn("voided", note.note)
 
-    def test_release_is_blocked_again_after_deleting_the_payment(self):
+    def test_release_is_blocked_again_after_voiding_the_payment(self):
         job = self.job("Will not charge")
         s.record_payment(job, self.desk, job.final_cost, "Card")
-        s.delete_payment(job, self.desk, job.payments.get().pk)
+        s.void_payment(job, self.desk, job.payments.get().pk, "Wrong amount")
         with self.assertRaises(s.RuleError):
             s.release_device(job, self.desk, True, True)
 
-    def test_payment_cannot_be_deleted_after_release(self):
+    def test_payment_cannot_be_voided_after_release(self):
         job = self.job("Will not charge")
         s.record_payment(job, self.desk, job.final_cost, "Card")
         s.release_device(job, self.desk, True, True)
         with self.assertRaises(s.RuleError):
-            s.delete_payment(job, self.desk, job.payments.get().pk)
+            s.void_payment(job, self.desk, job.payments.get().pk, "Wrong amount")
         self.assertTrue(job.payments.exists())
 
-    def test_cannot_delete_another_jobs_payment(self):
+    def test_cannot_void_another_jobs_payment(self):
         job, other = self.job("Will not charge"), self.job("Keyboard not responding")
         s.record_payment(other, self.desk, "10.00", "Cash")
         with self.assertRaises(s.RuleError):
-            s.delete_payment(job, self.desk, other.payments.get().pk)
+            s.void_payment(job, self.desk, other.payments.get().pk, "Wrong job")
         self.assertTrue(other.payments.exists())
 
-    def test_screen_deletes_payment(self):
+    def test_screen_voids_payment(self):
         job = self.job("Will not charge")
         s.record_payment(job, self.desk, "5.00", "Cash")
         self.login(self.desk)
         page = self.client.get(reverse("job_detail", args=[job.pk]))
-        self.assertContains(page, 'value="delete_payment"')
+        self.assertContains(page, 'value="void_payment"')
         r = self.client.post(reverse("job_detail", args=[job.pk]),
-                             {"action": "delete_payment", "payment_id": job.payments.get().pk}, follow=True)
-        self.assertContains(r, "Payment deleted.")
-        self.assertFalse(job.payments.exists())
+                             {"action": "void_payment", "payment_id": job.payments.get().pk, "reason": "Wrong amount"}, follow=True)
+        self.assertContains(r, "Payment voided.")
+        self.assertEqual(job.payments.get().payment_status, "Voided")
+        self.assertEqual(job.amount_paid, 0)
 
-    def test_technician_cannot_delete_payment(self):
+    def test_technician_without_jobs_access_cannot_void_payment(self):
         job = self.job("Will not charge")
         s.record_payment(job, self.desk, "5.00", "Cash")
         self.login(self.jordan)
         r = self.client.post(reverse("job_detail", args=[job.pk]),
-                             {"action": "delete_payment", "payment_id": job.payments.get().pk})
+                             {"action": "void_payment", "payment_id": job.payments.get().pk, "reason": "Wrong amount"})
         self.assertEqual(r.status_code, 403)
         self.assertTrue(job.payments.exists())
 
@@ -1441,6 +1443,7 @@ class ReceiptTests(Base):
         self.assertEqual(self.client.get(reverse("job_receipt", args=[job.pk])).status_code, 403)
 
 
+
 class ThermalSlipTests(Base):
     """The ticket, tag and receipt print on an 80 mm thermal receipt printer (decision 2026-11-20)."""
 
@@ -1562,3 +1565,242 @@ class DeploymentTests(TestCase):
                 {"QP_SQLITE_PATH": path})
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(r.stdout.strip(), "True")
+
+
+class SecurityPermissionFixTests(Base):
+    def staff_data(self, user=None, role=m.FRONT_DESK):
+        return {"first_name": "Casey", "last_name": "River", "email": user.email if user else "casey@quickphone.test",
+                "role": role, "store_id": self.store1.pk, "password": "Distinct-long-phrase-472", "active_flag": "on"}
+
+    def grant(self, role, screen):
+        m.ScreenAccess.objects.update_or_create(role=role, screen=screen, defaults={"allowed": True})
+
+    def test_manager_cannot_create_manager_or_owner(self):
+        self.login(self.manager)
+        for role in (m.MANAGER, m.OWNER):
+            response = self.client.post(reverse("staff_new"), self.staff_data(role=role))
+            self.assertContains(response, "Only the Owner can give")
+        self.assertFalse(m.Employee.objects.filter(email="casey@quickphone.test").exists())
+
+    def test_staff_screen_override_cannot_escalate_low_privilege_accounts(self):
+        for user in (self.sam, self.desk):
+            self.grant(user.role, "staff")
+            self.login(user)
+            self.assertEqual(self.client.get(reverse("staff_new")).status_code, 403)
+            self.assertEqual(self.client.post(reverse("staff_new"), self.staff_data(role=m.MANAGER)).status_code, 403)
+            self.assertEqual(self.client.post(reverse("staff_edit", args=[self.manager.pk]), self.staff_data(self.manager)).status_code, 403)
+
+    def test_manager_cannot_reset_peer_or_demote_peer(self):
+        peer = m.Employee.objects.create_user("peer@quickphone.test", "Another-long-phrase-42", store=self.store1,
+                                              first_name="Peer", last_name="Manager", role=m.MANAGER)
+        before = peer.password
+        self.login(self.manager)
+        self.assertEqual(self.client.post(reverse("staff_edit", args=[peer.pk]), self.staff_data(peer)).status_code, 403)
+        peer.refresh_from_db()
+        self.assertEqual((peer.role, peer.password), (m.MANAGER, before))
+
+    def test_manager_can_manage_front_desk_and_technician(self):
+        self.login(self.manager)
+        for user in (self.desk, self.sam):
+            self.assertEqual(self.client.post(reverse("staff_edit", args=[user.pk]), self.staff_data(user, user.role)).status_code, 302)
+            user.refresh_from_db()
+            self.assertTrue(user.check_password("Distinct-long-phrase-472"))
+
+    def test_owner_can_create_and_reset_manager(self):
+        self.login(self.owner)
+        self.assertEqual(self.client.post(reverse("staff_new"), self.staff_data(role=m.MANAGER)).status_code, 302)
+        self.assertEqual(self.client.post(reverse("staff_edit", args=[self.manager.pk]), self.staff_data(self.manager, m.MANAGER)).status_code, 302)
+        self.assertTrue(m.AuditEvent.objects.filter(action="staff_created", actor=self.owner).exists())
+
+    def test_manager_cannot_manage_other_store_accounts(self):
+        other = m.Employee.objects.get(email="manager2@quickphone.test")
+        self.login(self.manager)
+        self.assertEqual(self.client.get(reverse("staff_edit", args=[other.pk])).status_code, 404)
+
+    def test_manager_can_update_own_profile_without_changing_role(self):
+        self.login(self.manager)
+        self.assertEqual(self.client.post(reverse("staff_edit", args=[self.manager.pk]), self.staff_data(self.manager, m.MANAGER)).status_code, 302)
+        self.manager.refresh_from_db()
+        self.assertEqual(self.manager.role, m.MANAGER)
+
+    def test_dashboard_override_only_returns_home_store(self):
+        for user in (self.manager, self.sam, self.desk):
+            self.grant(user.role, "dashboard")
+            self.login(user)
+            session = self.client.session
+            session["store_id"] = m.Store.objects.exclude(pk=self.store1.pk).first().pk
+            session.save()
+            response = self.client.get(reverse("dashboard"))
+            self.assertEqual([s["store"].pk for s in response.context["stores"]], [user.store_id])
+            self.assertNotContains(response, "Both stores at a glance")
+            self.assertNotContains(response, "Open this store&#x27;s jobs")
+
+    def test_dashboard_stays_closed_by_default_and_owner_sees_both(self):
+        self.login(self.sam)
+        self.assertEqual(self.client.get(reverse("dashboard")).status_code, 403)
+        self.login(self.owner)
+        self.assertEqual(len(self.client.get(reverse("dashboard")).context["stores"]), m.Store.objects.count())
+
+    def test_technician_contact_lookup_and_assigned_passcode_remain_available(self):
+        self.login(self.sam)
+        job = self.job("Cracked screen")
+        response = self.client.get(reverse("bench_job", args=[job.pk]))
+        self.assertContains(response, "482916")
+        self.assertContains(response, job.customer.phone)
+        self.assertEqual(self.client.get(reverse("checkin"), {"customer": job.customer.pk}).status_code, 200)
+
+    def test_manager_can_still_self_approve_po_but_technician_cannot(self):
+        po = m.PurchaseOrder.objects.create(store=self.store1, supplier=m.Supplier.objects.first(),
+                                            created_by=self.manager, po_status=m.PO_PENDING)
+        s.approve_po(po, self.manager)
+        po.refresh_from_db()
+        self.assertEqual(po.approved_by, self.manager)
+        with self.assertRaises(s.RuleError):
+            s.approve_po(po, self.sam)
+
+
+class PaymentVoidSecurityTests(Base):
+    def paid(self):
+        job = self.job("Will not charge")
+        s.record_payment(job, self.desk, job.final_cost, "Card")
+        return job, job.payments.get()
+
+    def test_void_retains_original_payment_and_excludes_it_from_balance(self):
+        job, payment = self.paid()
+        original = (payment.amount, payment.method, payment.paid_at)
+        s.void_payment(job, self.desk, payment.pk, "Duplicate register entry")
+        payment.refresh_from_db()
+        self.assertEqual((payment.amount, payment.method, payment.paid_at), original)
+        self.assertEqual(payment.payment_status, "Voided")
+        self.assertEqual(payment.voided_by, self.desk)
+        self.assertEqual(payment.void_reason, "Duplicate register entry")
+        self.assertIsNotNone(payment.voided_at)
+        self.assertEqual(job.amount_paid, 0)
+        self.assertTrue(m.AuditEvent.objects.filter(action="payment_voided", actor=self.desk, target_id=str(payment.pk)).exists())
+        with self.assertRaises(s.RuleError):
+            s.release_device(job, self.desk, True, True)
+
+    def test_void_requires_reason_and_cannot_repeat(self):
+        job, payment = self.paid()
+        for reason in ("", "   ", "x" * 201):
+            with self.assertRaises(s.RuleError):
+                s.void_payment(job, self.desk, payment.pk, reason)
+        s.void_payment(job, self.desk, payment.pk, "Duplicate")
+        with self.assertRaises(s.RuleError):
+            s.void_payment(job, self.desk, payment.pk, "Changed again")
+        self.assertEqual(m.AuditEvent.objects.filter(action="payment_voided", target_id=str(payment.pk)).count(), 1)
+
+    def test_void_cannot_cross_store_even_with_screen_override(self):
+        job, payment = self.paid()
+        other = m.Employee.objects.get(email="manager2@quickphone.test")
+        with self.assertRaises(s.RuleError):
+            s.void_payment(job, other, payment.pk, "Wrong store")
+        self.login(other)
+        self.assertEqual(self.client.post(reverse("job_detail", args=[job.pk]), {
+            "action": "void_payment", "payment_id": payment.pk, "reason": "Wrong store"}).status_code, 404)
+        payment.refresh_from_db()
+        self.assertEqual(payment.payment_status, "Paid")
+
+    def test_technician_can_void_when_owner_grants_repair_jobs(self):
+        job, payment = self.paid()
+        m.ScreenAccess.objects.create(role=m.TECHNICIAN, screen="jobs", allowed=True)
+        self.login(self.jordan)
+        response = self.client.post(reverse("job_detail", args=[job.pk]), {
+            "action": "void_payment", "payment_id": payment.pk, "reason": "Duplicate entry"}, follow=True)
+        self.assertContains(response, "Payment voided.")
+        self.assertContains(response, "Duplicate entry")
+        self.assertContains(response, "Voided")
+        self.assertNotContains(response, 'value="delete_payment"')
+        payment.refresh_from_db()
+        self.assertEqual(payment.voided_by, self.jordan)
+
+    def test_receipt_excludes_voided_payments(self):
+        job, payment = self.paid()
+        s.void_payment(job, self.desk, payment.pk, "Duplicate")
+        s.record_payment(job, self.desk, job.final_cost, "Cash")
+        self.login(self.desk)
+        response = self.client.get(reverse("job_receipt", args=[job.pk]))
+        self.assertNotContains(response, ", Card</dt>")
+        self.assertContains(response, ", Cash</dt>")
+        self.assertEqual(job.amount_paid, job.final_cost)
+
+    def test_stale_job_cannot_void_payment_after_release(self):
+        job, payment = self.paid()
+        stale = m.RepairJob.objects.get(pk=job.pk)
+        s.release_device(job, self.desk, True, True)
+        with self.assertRaises(s.RuleError):
+            s.void_payment(stale, self.desk, payment.pk, "Late correction")
+        payment.refresh_from_db()
+        self.assertEqual(payment.payment_status, "Paid")
+
+
+    def test_payment_correction_rolls_back_when_audit_record_fails(self):
+        from unittest.mock import patch
+        job, payment = self.paid()
+        history_count = job.history.count()
+        with patch("shop.audit.record", side_effect=RuntimeError("Audit storage failed")):
+            with self.assertRaises(RuntimeError):
+                s.void_payment(job, self.desk, payment.pk, "Duplicate")
+        payment.refresh_from_db()
+        self.assertEqual(payment.payment_status, "Paid")
+        self.assertEqual(payment.void_reason, "")
+        self.assertEqual(job.history.count(), history_count)
+
+    def test_service_refuses_technician_without_repair_jobs_access(self):
+        job, payment = self.paid()
+        with self.assertRaises(s.RuleError):
+            s.void_payment(job, self.jordan, payment.pk, "Duplicate")
+        payment.refresh_from_db()
+        self.assertEqual(payment.payment_status, "Paid")
+
+
+class AuditRecordTests(Base):
+    def test_signins_and_failures_are_logged_without_credentials(self):
+        self.client.post(reverse("login"), {"username": self.desk.email, "password": "bad-password"})
+        failed = m.AuditEvent.objects.get(action="sign_in", outcome="Failure")
+        self.assertNotIn("bad-password", str(failed.details))
+        self.assertNotIn(self.desk.email, str(failed.details))
+        self.assertIn("login_hash", failed.details)
+        self.client.post(reverse("login"), {"username": self.desk.email, "password": TRAINING_PASSWORD})
+        self.assertTrue(m.AuditEvent.objects.filter(action="sign_in", outcome="Success", actor=self.desk).exists())
+
+    def test_passcode_audit_records_viewer_without_passcode(self):
+        job = self.job("Cracked screen")
+        self.login(self.sam)
+        self.client.get(reverse("bench_job", args=[job.pk]))
+        event = m.AuditEvent.objects.get(action="passcode_view", target_id=str(job.pk))
+        self.assertEqual(event.actor, self.sam)
+        self.assertNotIn("482916", str(event.details))
+        self.login(self.desk)
+        self.client.get(reverse("job_detail", args=[job.pk]))
+        self.assertFalse(m.AuditEvent.objects.filter(action="passcode_view", actor=self.desk).exists())
+
+    def test_only_owner_can_read_audit_even_with_all_screens_open(self):
+        from .permissions import SCREENS
+        for user in (self.manager, self.sam, self.desk):
+            for screen in SCREENS:
+                m.ScreenAccess.objects.update_or_create(role=user.role, screen=screen, defaults={"allowed": True})
+            self.login(user)
+            self.assertEqual(self.client.get(reverse("audit_events")).status_code, 403)
+        self.login(self.owner)
+        self.assertContains(self.client.get(reverse("audit_events")), "Audit records")
+
+    def test_permission_changes_and_reset_are_recorded(self):
+        self.login(self.owner)
+        self.client.post(reverse("access"), {"dashboard|Manager": "on"})
+        self.assertTrue(m.AuditEvent.objects.filter(action="screen_access_changed", actor=self.owner,
+                                                    details__role=m.MANAGER, details__screen="dashboard").exists())
+        self.client.post(reverse("access"), {"action": "reset"})
+        self.assertTrue(m.AuditEvent.objects.filter(action="screen_access_reset", actor=self.owner).exists())
+
+    def test_audit_events_are_read_only_in_application(self):
+        event = m.AuditEvent.objects.create(action="test", actor=self.owner)
+        event.action = "changed"
+        with self.assertRaises(ValueError):
+            event.save()
+        with self.assertRaises(ValueError):
+            event.delete()
+        with self.assertRaises(ValueError):
+            m.AuditEvent.objects.filter(pk=event.pk).update(action="changed")
+        with self.assertRaises(ValueError):
+            m.AuditEvent.objects.filter(pk=event.pk).delete()

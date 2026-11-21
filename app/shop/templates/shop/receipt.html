@@ -26,7 +26,7 @@
       {% else %}
         <dt><strong>Repair total</strong></dt><dd><strong>Not repaired</strong></dd>
       {% endif %}
-      {% for p in job.payments.all %}<dt>Paid {{ p.paid_at|date:"M j" }}, {{ p.method }}</dt><dd>${{ p.amount|floatformat:2 }}</dd>{% endfor %}
+      {% for p in job.payments.all %}{% if p.payment_status == "Paid" %}<dt>Paid {{ p.paid_at|date:"M j" }}, {{ p.method }}</dt><dd>${{ p.amount|floatformat:2 }}</dd>{% endif %}{% endfor %}
       {% if job.final_cost is not None %}<dt><strong>Still due</strong></dt><dd><strong>${{ due|floatformat:2 }}</strong></dd>{% endif %}
     </dl>
     <p class="small">I have received this device from {{ job.store.store_name }}.</p>

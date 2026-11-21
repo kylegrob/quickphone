@@ -11,6 +11,7 @@ urlpatterns = [
     path("store/", records.switch_store, name="switch_store"),
     path("access/", records.access, name="access"),
     path("dashboard/", records.dashboard, name="dashboard"),
+    path("audit/", records.audit_events, name="audit_events"),
     # Front Desk: appointments, check-in, approval, pickup (DFD 1.0, 2.0, 5.0, 6.0)
     path("checkin/", desk.checkin, name="checkin"),
     path("appointments/new/", desk.appointment_edit, name="appointment_new"),

@@ -39,7 +39,7 @@ The context diagram and Level 0 come first. Level 0 is shown complete and in fou
 
 ## Entity relationship diagrams
 
-The ERD has 20 entities. It is shown in full, then as an overview with three detail views.
+The rendered ERD has 20 entities. The November 20 security implementation adds AuditEvent in D7 (21 entities in the application) and void metadata on Payment in D3; the diagram images still need regeneration for those additions. It is shown in full, then as an overview with three detail views.
 
 | View | Logical | Physical |
 |---|---|---|
