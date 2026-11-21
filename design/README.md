@@ -14,7 +14,7 @@ This folder holds the analysis and design behind the working system in [`../app`
 
 ## Data flow diagrams
 
-The context diagram and Level 0 come first. Level 0 is shown complete and in four parts, followed by a Level 1 diagram for each process. The logical set shows what the system does, and the physical set shows how it does it.
+The context diagram and Level 0 come first. Level 0 is shown complete and in four parts, followed by a Level 1 diagram for each process. The logical set shows what the system does, and the physical set shows how it does it. The physical 9.0 has eight processes and is drawn in two parts.
 
 | Diagram | Logical | Physical |
 |---|---|---|
@@ -28,16 +28,16 @@ The context diagram and Level 0 come first. Level 0 is shown complete and in fou
 | 2.0 Register repair job | [view](dfd/logical/08-level-1-2.0-register-repair-job.png) | [view](dfd/physical/08-level-1-2.0-register-repair-job.png) |
 | 3.0 Record diagnosis | [view](dfd/logical/09-level-1-3.0-record-diagnosis.png) | [view](dfd/physical/09-level-1-3.0-record-diagnosis.png) |
 | 4.0 Record repair work | [view](dfd/logical/10-level-1-4.0-record-repair-work.png) | [view](dfd/physical/10-level-1-4.0-record-repair-work.png) |
-| 5.0 Send completion notice | [view](dfd/logical/11-level-1-5.0-send-completion-notice.png) | [view](dfd/physical/11-level-1-5.0-send-completion-notice.png) |
+| 5.0 Send pickup notification | [view](dfd/logical/11-level-1-5.0-send-completion-notice.png) | [view](dfd/physical/11-level-1-5.0-send-completion-notice.png) |
 | 6.0 Record device release | [view](dfd/logical/12-level-1-6.0-record-device-release.png) | [view](dfd/physical/12-level-1-6.0-record-device-release.png) |
 | 7.0 Process purchase orders | [view](dfd/logical/13-level-1-7.0-process-purchase-orders.png) | [view](dfd/physical/13-level-1-7.0-process-purchase-orders.png) |
-| 9.0 Maintain shop records | [view](dfd/logical/14-level-1-9.0-maintain-shop-records.png) | [view](dfd/physical/14-level-1-9.0-maintain-shop-records.png) |
+| 9.0 Maintain shop records | [view](dfd/logical/14-level-1-9.0-maintain-shop-records.png) | [part 1](dfd/physical/14-level-1-9.0-maintain-shop-records-part-1.png) · [part 2](dfd/physical/14-level-1-9.0-maintain-shop-records-part-2.png) |
 
 ![Level 0 data flow diagram (logical)](dfd/logical/02-level-0.png)
 
 ## Entity relationship diagrams
 
-The ERD has 19 entities. It is shown in full, then as an overview with three detail views.
+The ERD has 20 entities. It is shown in full, then as an overview with three detail views.
 
 | View | Logical | Physical |
 |---|---|---|

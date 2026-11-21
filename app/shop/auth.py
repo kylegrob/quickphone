@@ -8,7 +8,7 @@ to hold across processes.
 
 The sign-in page says why a sign-in failed (2026-11-20): a locked account is told it is locked
 and for how long, the last tries before a lock are warned, and a turned-off account is told so.
-A Manager or the Owner can unlock an account on its staff screen.
+A lock ends only by itself, after LOGIN_LOCK_MINUTES; nobody can end it early.
 """
 import math
 import time
@@ -18,8 +18,7 @@ from django.conf import settings
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.cache import cache
 
-LOCKED_MESSAGE = ("This account is locked after {failures} failed sign-ins. Try again in {minutes} "
-                  "minute{plural}, or ask a Manager or the Owner to unlock it on the Staff screen.")
+LOCKED_MESSAGE = "This account is locked after {failures} failed sign-ins. Try again in {minutes} minute{plural}."
 WRONG_MESSAGE = "Email or password is not correct."
 WARN_MESSAGE = " {left} more failed {tries} will lock this account for {minutes} minutes."
 INACTIVE_MESSAGE = "This account is turned off. Ask a Manager or the Owner to turn it back on."

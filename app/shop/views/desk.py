@@ -32,27 +32,16 @@ def _customers_by_phone(phone):
     return m.Customer.objects.filter(pk__in=matches).prefetch_related("devices")[:10]
 
 
-def _find_customers(query):
-    """Search by phone digits, or by email when the search has an @ (2026-11-20)."""
-    query = query.strip()
-    if "@" in query:
-        return m.Customer.objects.filter(email__iexact=query).prefetch_related("devices")[:10]
-    return _customers_by_phone(query)
-
-
 def _new_customer(request, errors):
     first, last = request.POST.get("first_name", "").strip(), request.POST.get("last_name", "").strip()
     phone, email = request.POST.get("phone", "").strip(), request.POST.get("email", "").strip()
-    if not (first and last):
-        errors.append("Enter the customer's first name and last name.")
-    if not (phone or email):  # at least one way to reach the customer (2026-11-20)
-        errors.append("Enter the customer's phone or email, so the shop can reach them.")
-    if errors:
+    if not (first and last and phone):  # phone is required, email optional
+        errors.append("Enter the customer's first name, last name and phone.")
         return None
-    if phone and len([c for c in phone if c.isdigit()]) < 7:
-        errors.append("Enter a full phone number, or leave it blank and enter an email.")
+    if len([c for c in phone if c.isdigit()]) < 7:
+        errors.append("Enter a full phone number.")
         return None
-    if phone and _customers_by_phone(phone).exists():
+    if _customers_by_phone(phone).exists():
         errors.append("A customer with this phone number already exists. Search by phone and select them.")
         return None
     if email:
@@ -61,11 +50,7 @@ def _new_customer(request, errors):
             if len(email) > m.Customer._meta.get_field("email").max_length:
                 raise ValidationError("too long")
         except ValidationError:  # defect D-6, 2026-11-08: a bad address only failed later, at send
-            errors.append("Enter a valid email address." if not phone else
-                          "Enter a valid email address, or leave it blank.")
-            return None
-        if m.Customer.objects.filter(email__iexact=email).exists():
-            errors.append("A customer with this email already exists. Search by email and select them.")
+            errors.append("Enter a valid email address, or leave it blank.")
             return None
     return m.Customer.objects.create(first_name=first, last_name=last, phone=phone, email=email or None)
 
@@ -97,12 +82,10 @@ def _invalid_checkin_fields(post, errors, customer):
     """Fields to mark invalid after a failed check-in, so the error is tied to the field (WCAG 3.3.1)."""
     bad = set()
     if not customer:
-        bad |= {f for f in ("first_name", "last_name") if not post.get(f, "").strip()}
-        if not (post.get("phone", "").strip() or post.get("email", "").strip()):
-            bad |= {"phone", "email"}
+        bad |= {f for f in ("first_name", "last_name", "phone") if not post.get(f, "").strip()}
         if any("phone number" in e for e in errors):
             bad.add("phone")
-        if any("email" in e and "phone or email" not in e for e in errors):
+        if any("email" in e for e in errors):
             bad.add("email")
     if any(e.startswith("Pick the device") for e in errors):
         bad.add("device_model")
@@ -171,7 +154,7 @@ def checkin(request):
     return render(request, "shop/checkin.html", {
         "day": day, "days": [timezone.localdate() + timedelta(days=i) for i in range(settings.APPOINTMENT_DAYS_AHEAD)],
         "appointments": appointments, "appointment": appointment, "customer": customer, "phone": phone,
-        "matches": _find_customers(phone) if phone and not customer else [],
+        "matches": _customers_by_phone(phone) if phone and not customer else [],
         "technicians": services.repairers(store), "device_types": m.DEVICE_TYPES, "post": request.POST,
         "device_models": m.DeviceModel.objects.all(), "brands": m.DeviceModel.objects.order_by("brand").values_list("brand", flat=True).distinct(),
         "parts": picker_parts(store, _model_hint(request.POST), request.POST),
@@ -238,7 +221,7 @@ def appointment_edit(request, pk=None):
         "appointment": appointment, "customer": customer, "phone": phone, "day": day, "slots": slots,
         "repair_types": repair_types, "repair_type": repair_type, "minutes": minutes,
         "days": [timezone.localdate() + timedelta(days=i) for i in range(settings.APPOINTMENT_DAYS_AHEAD)],
-        "matches": _find_customers(phone) if phone and not customer else [],
+        "matches": _customers_by_phone(phone) if phone and not customer else [],
         "technicians": services.repairers(store), "post": request.POST,
     })
 

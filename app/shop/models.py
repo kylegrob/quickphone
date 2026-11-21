@@ -117,18 +117,13 @@ class Customer(models.Model):
     customer_id = models.AutoField(primary_key=True)
     first_name = models.CharField(max_length=40)
     last_name = models.CharField(max_length=40)
-    # Phone or email may be blank, but not both: intake needs one way to reach the customer (2026-11-20).
-    phone = models.CharField(max_length=20, db_index=True, blank=True, default="")
+    phone = models.CharField(max_length=20, db_index=True)  # required; email is optional
     email = models.EmailField(max_length=120, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "customer"
         ordering = ["last_name", "first_name"]
-        constraints = [
-            models.CheckConstraint(condition=~Q(phone="") | (Q(email__isnull=False) & ~Q(email="")),
-                                   name="customer_contact_ck")
-        ]
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"

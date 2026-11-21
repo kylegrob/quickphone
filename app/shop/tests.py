@@ -492,7 +492,7 @@ class RepairTypeSlotTests(Base):
 
 
 class IntakeContactTests(Base):
-    """2026-11-20: a new customer needs a phone or an email, at least one."""
+    """A new customer needs a phone number; email is optional."""
 
     def post(self, **fields):
         self.login(self.desk)
@@ -501,35 +501,23 @@ class IntakeContactTests(Base):
         data.update(fields)
         return self.client.post(reverse("checkin"), data)
 
-    def test_no_phone_and_no_email_is_blocked(self):
-        html = self.post().content.decode()
-        self.assertIn("phone or email", html)
+    def test_fr02_no_phone_is_blocked_even_with_an_email(self):
+        html = self.post(email="email.only@example.com").content.decode()
+        self.assertIn("first name, last name and phone", html)
         self.assertFalse(m.RepairJob.objects.filter(reported_issue="Contact test").exists())
-        for field in ("new_phone", "email"):
-            tag = html[html.index(f'id="{field}"'):]
-            self.assertIn('aria-invalid="true"', tag[:tag.index(">")], field)
+        tag = html[html.index('id="new_phone"'):]
+        self.assertIn('aria-invalid="true"', tag[:tag.index(">")])
 
-    def test_email_only_customer_is_accepted(self):
-        self.post(email="email.only@example.com")
-        cust = m.RepairJob.objects.get(reported_issue="Contact test").customer
-        self.assertEqual((cust.phone, cust.email), ("", "email.only@example.com"))
-
-    def test_phone_only_customer_is_accepted(self):
+    def test_fr02_phone_only_customer_is_accepted(self):
         self.post(phone="(919) 555-0901")
-        self.assertTrue(m.RepairJob.objects.filter(reported_issue="Contact test").exists())
+        cust = m.RepairJob.objects.get(reported_issue="Contact test").customer
+        self.assertEqual((cust.phone, cust.email), ("(919) 555-0901", None))
 
-    def test_duplicate_email_is_blocked(self):
-        self.post(email="M.Santos@example.com")
-        self.assertFalse(m.RepairJob.objects.filter(reported_issue="Contact test").exists())
-
-    def test_search_finds_customer_by_email(self):
+    def test_fr02_search_is_by_phone_not_email(self):
         self.login(self.desk)
-        self.assertContains(self.client.get(reverse("checkin"), {"phone": "m.santos@example.com"}), "Maria Santos")
-
-    def test_database_refuses_a_customer_with_no_contact(self):
-        from django.db import IntegrityError, transaction
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            m.Customer.objects.create(first_name="No", last_name="Contact", phone="", email=None)
+        select = f'href="?customer={m.Customer.objects.get(email="m.santos@example.com").pk}"'
+        self.assertContains(self.client.get(reverse("checkin"), {"phone": "555-0142"}), select)
+        self.assertNotContains(self.client.get(reverse("checkin"), {"phone": "m.santos@example.com"}), select)
 
 
 class POApprovalEmailTests(Base):
@@ -862,6 +850,24 @@ class WorkflowTests(Base):
         self.assertTrue(all(h.changed_by_id and h.changed_at for h in job.history.all()))
 
 
+class DecisionOnBenchTests(Base):
+    def test_fr05_assigned_repairer_records_the_decision_on_the_bench(self):
+        """2026-11-20: the repairer assigned to the job may record the customer's answer; nobody else's bench can."""
+        job = m.RepairJob.objects.filter(status=m.AWAITING_APPROVAL, assigned_tech__isnull=False).first()
+        tech = job.assigned_tech
+        other = self.jordan if tech != self.jordan else self.sam
+        self.login(other)
+        r = self.client.post(reverse("bench_job", args=[job.pk]), {"action": "approve"})
+        self.assertEqual(r.status_code, 404)
+        job.refresh_from_db()
+        self.assertEqual(job.status, m.AWAITING_APPROVAL)
+        self.login(tech)
+        self.client.post(reverse("bench_job", args=[job.pk]), {"action": "approve"})
+        job.refresh_from_db()
+        self.assertIn(job.status, (m.IN_REPAIR, m.AWAITING_PARTS))
+        self.assertTrue(job.quotes.filter(decision=m.Q_APPROVED, decision_by=tech).exists())
+
+
 class NotificationTests(Base):
     def test_fr12_email_from_store_account_logs_sender(self):
         job = self.job("Will not charge")
@@ -881,6 +887,16 @@ class NotificationTests(Base):
         self.client.post(reverse("job_notify", args=[job.pk]))
         job.refresh_from_db()
         self.assertEqual(job.email_sent_by, self.jordan)
+
+    def test_fr12_no_send_button_for_a_customer_without_email(self):
+        job = self.job("Will not charge")
+        m.Customer.objects.filter(pk=job.customer.pk).update(email=None)
+        for user, url in ((self.desk, "job_detail"), (self.jordan, "bench_job")):
+            self.login(user)
+            page = self.client.get(reverse(url, args=[job.pk]))
+            self.assertNotContains(page, reverse("job_notify", args=[job.pk]))
+            self.assertNotContains(page, "Send pickup notification")
+            self.assertContains(page, "No email on file")
 
     def test_bench_shows_whether_pickup_notification_was_sent(self):
         """2026-11-20: the bench shows the notification state, in the job list and on the job."""
@@ -1182,29 +1198,22 @@ class SecurityTests(Base):
         self.assertContains(r, "This account is turned off")
         self.assertNotContains(self.fail(), "turned off")
 
-    def test_f4_manager_unlocks_an_account(self):
+    def test_f4_nobody_can_end_a_lock_early(self):
+        """The unlock was removed: a lock ends only by itself."""
         from django.conf import settings
         from .auth import is_locked
         for _ in range(settings.LOGIN_MAX_FAILURES):
             self.fail()
-        self.assertTrue(is_locked("desk1@quickphone.test"))
         self.login(self.manager)
         self.assertContains(self.client.get(reverse("staff")), "Locked")
-        self.assertContains(self.client.get(reverse("staff_edit", args=[self.desk.pk])), "Unlock sign-in now")
+        page = self.client.get(reverse("staff_edit", args=[self.desk.pk]))
+        self.assertContains(page, "The lock ends by itself")
+        self.assertNotContains(page, "Unlock")
         self.client.post(reverse("staff_edit", args=[self.desk.pk]), {"action": "unlock"})
-        self.assertFalse(is_locked("desk1@quickphone.test"))
-        self.client.logout()
-        r = self.client.post(reverse("login"), {"username": "desk1@quickphone.test", "password": TRAINING_PASSWORD})
-        self.assertEqual(r.status_code, 302)
-
-    def test_f4_technician_cannot_unlock(self):
-        from django.conf import settings
-        from .auth import is_locked
-        for _ in range(settings.LOGIN_MAX_FAILURES):
-            self.fail()
-        self.login(self.sam)
-        r = self.client.post(reverse("staff_edit", args=[self.desk.pk]), {"action": "unlock"})
-        self.assertEqual(r.status_code, 403)
+        self.assertTrue(is_locked("desk1@quickphone.test"))
+        self.client.post(reverse("staff_edit", args=[self.desk.pk]), {
+            "first_name": "Fatima", "last_name": "Reyes", "email": "desk1@quickphone.test", "role": m.FRONT_DESK,
+            "store_id": self.store1.pk, "active_flag": "on", "password": "A-new-long-passphrase-26"})
         self.assertTrue(is_locked("desk1@quickphone.test"))
 
     def test_f4_successful_sign_in_resets_the_count(self):

@@ -25,7 +25,7 @@
   <tbody>
   {% for j in jobs %}
     <tr><td><a class="mono" href="{% url 'job_detail' j.pk %}">{{ j.ticket_number }}</a></td>
-      <td>{{ j.device.customer }}<div class="part-sub">{{ j.device.customer.phone|default:j.device.customer.email }}</div></td>
+      <td>{{ j.device.customer }}<div class="part-sub">{{ j.device.customer.phone }}</div></td>
       <td>{{ j.device }}<div class="part-sub">{{ j.reported_issue|truncatechars:60 }}</div></td>
       <td>{{ j.assigned_tech.first_name|default:"Open" }}</td>
       <td>{{ j.check_in_at|date:"M j, g:i A" }}</td>

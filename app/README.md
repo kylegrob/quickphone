@@ -57,7 +57,6 @@ Ask trainees to finish exercises 1, 4 and 8 without help; that is the acceptance
 ## Changes from Kyle (Nov 20)
 
 - **Appointment length depends on the repair type.** Book appointment first asks for the repair type (Screen replacement, Battery replacement and so on); the time slots then show only start times where that length fits. A booking holds its technician for its whole length, and one that would run past closing (the last slot plus one slot) cannot be picked. The Owner or a Manager changes the lengths, in 15-minute steps, under Staff, stores and suppliers. A booking keeps the length it was made with if the type changes later.
-- **Intake needs a phone or an email.** A new customer can have either or both, but not neither; the database refuses a customer with no contact. Customer search accepts an email as well as a phone number, and a duplicate email is refused like a duplicate phone.
 - **Approvers are emailed when an order is submitted.** The store's Managers and the Owner (not the person who submitted it) get an email from the store account; a failed email does not undo the submission.
 - **A payment recorded by mistake can be deleted** from the job page until the device is released. The job history keeps what was deleted and by whom.
 - **The technician bench shows whether the pickup notification was sent**, on the job and in the job list, with the Send button beside it.
@@ -78,7 +77,7 @@ Still to confirm with the owner: store hours and the slot grid (placeholders in 
 
 ## Tests
 
-`$env:QP_DB_ENGINE='sqlite'; .venv\Scripts\python app\manage.py test shop` runs 141 tests named after the catalog's acceptance checks, including the security cases: a Technician approving an order, a Front Desk user opening inventory, an unpaid release, stock below zero, a Manager creating an Owner account, and the `SecurityTests` class (sign-in lockout, weak passwords, other-store records by ID, CSRF, settings that refuse to start without keys), and `DeploymentTests` (the `setup_live` command, the shared lockout cache, and the live settings and migration). `QP_DB_ENGINE=sqlite` exists only so tests and demos can run on a machine without PostgreSQL.
+`$env:QP_DB_ENGINE='sqlite'; .venv\Scripts\python app\manage.py test shop` runs 154 tests named after the catalog's acceptance checks, including the security cases: a Technician approving an order, a Front Desk user opening inventory, an unpaid release, stock below zero, a Manager creating an Owner account, and the `SecurityTests` class (sign-in lockout, weak passwords, other-store records by ID, CSRF, settings that refuse to start without keys), and `DeploymentTests` (the `setup_live` command, the shared lockout cache, and the live settings and migration). `QP_DB_ENGINE=sqlite` exists only so tests and demos can run on a machine without PostgreSQL.
 
 ## Security (2026-11-06)
 

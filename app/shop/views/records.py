@@ -10,7 +10,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from .. import models as m
 from .. import services
 from ..permissions import NAV, SCREENS, can_open, role_required, screen_required
-from ..auth import clear_failures, is_locked, minutes_left
+from ..auth import is_locked, minutes_left
 from .common import keep_typed, to_int
 
 HOME = {m.OWNER: "dashboard", m.MANAGER: "inventory", m.TECHNICIAN: "bench", m.FRONT_DESK: "checkin"}
@@ -79,10 +79,6 @@ def staff_edit(request, pk=None):
         raise PermissionDenied("Only the Owner can change an Owner account.")
     stores = m.Store.objects.all() if user.role == m.OWNER else m.Store.objects.filter(pk=user.store_id)
     roles = [r for r in m.ROLES if services.can_assign_role(user, r)]
-    if request.method == "POST" and pk and request.POST.get("action") == "unlock":
-        clear_failures(employee.email)
-        messages.success(request, f"{employee} can sign in again.")
-        return redirect("staff_edit", employee.pk)
     if request.method == "POST":
         p, errors = request.POST, []
         role = p.get("role")
@@ -113,8 +109,6 @@ def staff_edit(request, pk=None):
             if password:
                 employee.set_password(password)
             employee.save()
-            if password:
-                clear_failures(employee.email)  # a new password also ends a lock
             messages.success(request, f"{employee} saved.")
             return redirect("staff")
         for e in errors:
