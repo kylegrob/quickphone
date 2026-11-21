@@ -465,13 +465,14 @@ class RepairTypeSlotTests(Base):
         appt = m.Appointment.objects.get(customer=cust, scheduled_at=self.at(14))
         self.assertEqual((appt.repair_type, appt.duration_minutes), (kind, kind.slot_minutes))
 
-    def test_manager_sets_length_and_front_desk_cannot(self):
+    def test_owner_sets_length_and_other_roles_cannot(self):
         kind = m.RepairType.objects.get(type_name="Screen replacement")
-        self.login(self.desk)
-        r = self.client.post(reverse("repair_type_edit", args=[kind.pk]),
-                             {"type_name": kind.type_name, "slot_minutes": "45"})
-        self.assertEqual(r.status_code, 403)
-        self.login(self.manager)
+        for user in (self.desk, self.manager, self.sam):
+            self.login(user)
+            r = self.client.post(reverse("repair_type_edit", args=[kind.pk]),
+                                 {"type_name": kind.type_name, "slot_minutes": "45"})
+            self.assertEqual(r.status_code, 403)
+        self.login(self.owner)
         self.client.post(reverse("repair_type_edit", args=[kind.pk]),
                          {"type_name": kind.type_name, "slot_minutes": "50", "active_flag": "on"})
         kind.refresh_from_db()
@@ -665,7 +666,7 @@ class KeepTypedInputTests(Base):
         self.assertContains(r, 'placeholder="QP-SCR-IP13" aria-invalid="true"')
 
     def test_refused_repair_type_keeps_name_and_marks_minutes(self):
-        self.login(self.manager)
+        self.login(self.owner)
         r = self.client.post(reverse("repair_type_new"), {"type_name": "Back glass", "slot_minutes": "50"})
         self.assertContains(r, 'value="Back glass"')
         self.assertContains(r, 'name="slot_minutes" aria-invalid="true"')
@@ -1660,6 +1661,31 @@ class SecurityPermissionFixTests(Base):
 
 
 class PaymentVoidSecurityTests(Base):
+    def test_repair_jobs_override_preserves_payment_and_physical_release_gates(self):
+        job = self.job("Will not charge")
+        self.assertEqual(job.status, m.READY)
+        self.assertGreater(job.final_cost, 0)
+        self.login(self.jordan)
+        url = reverse("job_detail", args=[job.pk])
+        self.assertEqual(self.client.post(url, {"action": "payment", "amount": str(job.final_cost),
+                                                "method": "Cash"}).status_code, 403)
+        m.ScreenAccess.objects.create(role=m.TECHNICIAN, screen="jobs", allowed=True)
+        self.client.post(url, {"action": "release", "id_verified": "on", "receipt_signed": "on"})
+        job.refresh_from_db()
+        self.assertEqual(job.status, m.READY)
+        self.client.post(url, {"action": "payment", "amount": str(job.final_cost), "method": "Cash"})
+        job.refresh_from_db()
+        self.assertEqual(job.amount_paid, job.final_cost)
+        for flags in ({}, {"id_verified": "on"}, {"receipt_signed": "on"}):
+            self.client.post(url, {"action": "release", **flags})
+            job.refresh_from_db()
+            self.assertEqual(job.status, m.READY)
+        self.client.post(url, {"action": "release", "id_verified": "on", "receipt_signed": "on"})
+        job.refresh_from_db()
+        self.assertEqual(job.status, m.CLOSED)
+        self.assertTrue(job.id_verified_flag)
+        self.assertTrue(job.signature_file)
+
     def paid(self):
         job = self.job("Will not charge")
         s.record_payment(job, self.desk, job.final_cost, "Card")

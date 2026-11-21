@@ -1,0 +1,21 @@
+{
+  "date": "2026-11-20",
+  "branch": "preview",
+  "commit": "195c99cd4e4db3f5390bedc19202912857265f4f",
+  "working_tree": "Includes existing records.py role guards and corrected tests.py expectations plus release-gate regression.",
+  "command": "QP_DB_ENGINE=sqlite; .venv/Scripts/python.exe app/manage.py test shop --noinput --verbosity 2",
+  "database": "isolated in-memory SQLite; no working/customer database used",
+  "run": 182,
+  "passed": 182,
+  "failed": 0,
+  "errors": 0,
+  "seconds": 111.98,
+  "scope": "Django test client/services, models, authorization, voids, receipts, audit and regression coverage; no browser, physical printer, live SMTP or PostgreSQL concurrency claim",
+  "source_sha256": {
+    "app/shop/tests.py": "90f206f18115c57a5fb5a099cb82c65a54c8eb05265ceecb2422ed69afe49f20",
+    "app/shop/views/records.py": "d1f746bf8ce94e4301918c37b16f2acd1fc90ffb7c972efc5dc8ea48888e7822",
+    "app/shop/services.py": "6cec931035bc6c0aeacf0c2751bb706b9abb58a7dd461351a842a75c424c9ae2",
+    "app/shop/permissions.py": "e00fed30b8e885fab4f45e708569e9f6e36c202ccf602ee1694b76e65167039c",
+    "app/shop/models.py": "167b4ec3cf9929e769881b702824d59cf932e20ffeda683c2827969fbf27ec92"
+  }
+}

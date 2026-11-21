@@ -1,0 +1,230 @@
+Creating test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+
+Found 182 test(s).
+Operations to perform:
+  Synchronize unmigrated apps: messages, staticfiles
+  Apply all migrations: auth, contenttypes, sessions, shop
+Synchronizing apps without migrations:
+  Creating tables...
+    Running deferred SQL...
+Running migrations:
+  Applying contenttypes.0001_initial... OK
+  Applying contenttypes.0002_remove_content_type_name... OK
+  Applying auth.0001_initial... OK
+  Applying auth.0002_alter_permission_name_max_length... OK
+  Applying auth.0003_alter_user_email_max_length... OK
+  Applying auth.0004_alter_user_username_opts... OK
+  Applying auth.0005_alter_user_last_login_null... OK
+  Applying auth.0006_require_contenttypes_0002... OK
+  Applying auth.0007_alter_validators_add_error_messages... OK
+  Applying auth.0008_alter_user_username_max_length... OK
+  Applying auth.0009_alter_user_last_name_max_length... OK
+  Applying auth.0010_alter_group_name_max_length... OK
+  Applying auth.0011_update_proxy_permissions... OK
+  Applying auth.0012_alter_user_first_name_max_length... OK
+  Applying sessions.0001_initial... OK
+  Applying shop.0001_initial... OK
+  Applying shop.0002_part_labor_cost... OK
+  Applying shop.0003_device_model... OK
+  Applying shop.0004_screen_access... OK
+  Applying shop.0005_cache_table... OK
+  Applying shop.0006_repair_type_contact... OK
+  Applying shop.0007_customer_phone_required... OK
+test_every_screen_renders_for_its_role (shop.tests.AccessTests.test_every_screen_renders_for_its_role) ... ok
+test_fr13_owner_dashboard_compares_stores (shop.tests.AccessTests.test_fr13_owner_dashboard_compares_stores) ... ok
+test_fr14_manager_cannot_assign_owner_role (shop.tests.AccessTests.test_fr14_manager_cannot_assign_owner_role) ... ok
+test_fr14_owner_creates_user_in_each_role (shop.tests.AccessTests.test_fr14_owner_creates_user_in_each_role) ... ok
+test_inactive_account_cannot_sign_in (shop.tests.AccessTests.test_inactive_account_cannot_sign_in) ... ok
+test_login_with_training_password (shop.tests.AccessTests.test_login_with_training_password) ... ok
+test_manager_fixed_to_home_store (shop.tests.AccessTests.test_manager_fixed_to_home_store) ... ok
+test_nfr04_technician_sees_customer_contact (shop.tests.AccessTests.test_nfr04_technician_sees_customer_contact) ... ok
+test_every_page_has_skip_link_and_menu_button (shop.tests.AccessibilityMarkupTests.test_every_page_has_skip_link_and_menu_button) ... ok
+test_failed_check_in_marks_the_missing_fields (shop.tests.AccessibilityMarkupTests.test_failed_check_in_marks_the_missing_fields) ... ok
+test_quote_total_is_announced (shop.tests.AccessibilityMarkupTests.test_quote_total_is_announced) ... ok
+test_store_switch_needs_a_button_not_a_change_event (shop.tests.AccessibilityMarkupTests.test_store_switch_needs_a_button_not_a_change_event) ... ok
+test_fr01_appointment_prefills_check_in (shop.tests.AppointmentTests.test_fr01_appointment_prefills_check_in) ... ok
+test_fr01_book_reschedule_cancel (shop.tests.AppointmentTests.test_fr01_book_reschedule_cancel) ... ok
+test_fr01_full_slot_is_blocked (shop.tests.AppointmentTests.test_fr01_full_slot_is_blocked) ... ok
+test_fr01_technician_cannot_be_double_booked (shop.tests.AppointmentTests.test_fr01_technician_cannot_be_double_booked) ... ok
+test_audit_events_are_read_only_in_application (shop.tests.AuditRecordTests.test_audit_events_are_read_only_in_application) ... ok
+test_only_owner_can_read_audit_even_with_all_screens_open (shop.tests.AuditRecordTests.test_only_owner_can_read_audit_even_with_all_screens_open) ... ok
+test_passcode_audit_records_viewer_without_passcode (shop.tests.AuditRecordTests.test_passcode_audit_records_viewer_without_passcode) ... ok
+test_permission_changes_and_reset_are_recorded (shop.tests.AuditRecordTests.test_permission_changes_and_reset_are_recorded) ... ok
+test_signins_and_failures_are_logged_without_credentials (shop.tests.AuditRecordTests.test_signins_and_failures_are_logged_without_credentials) ... ok
+test_fr02_duplicate_phone_is_blocked (shop.tests.CheckInTests.test_fr02_duplicate_phone_is_blocked) ... ok
+test_fr02_fr03_walk_in_creates_job_with_ticket_and_history (shop.tests.CheckInTests.test_fr02_fr03_walk_in_creates_job_with_ticket_and_history) ... ok
+test_fr02_search_by_ticket_and_phone (shop.tests.CheckInTests.test_fr02_search_by_ticket_and_phone) ... ok
+test_passcode_is_encrypted_and_hidden_from_front_desk (shop.tests.CheckInTests.test_passcode_is_encrypted_and_hidden_from_front_desk) ... ok
+test_fr05_assigned_repairer_records_the_decision_on_the_bench (shop.tests.DecisionOnBenchTests.test_fr05_assigned_repairer_records_the_decision_on_the_bench)
+2026-11-20: the repairer assigned to the job may record the customer's answer; nobody else's bench can. ... ok
+test_d1_fr06_job_keeps_waiting_until_the_full_quantity_is_in_stock (shop.tests.DefectRegressionTests.test_d1_fr06_job_keeps_waiting_until_the_full_quantity_is_in_stock) ... ok
+test_d1_fr06_job_resumes_when_the_full_quantity_is_in_stock_and_can_finish (shop.tests.DefectRegressionTests.test_d1_fr06_job_resumes_when_the_full_quantity_is_in_stock_and_can_finish) ... ok
+test_d2_count_decrease_releases_nothing (shop.tests.DefectRegressionTests.test_d2_count_decrease_releases_nothing) ... ok
+test_d2_fr06_count_increase_releases_a_waiting_job (shop.tests.DefectRegressionTests.test_d2_fr06_count_increase_releases_a_waiting_job) ... ok
+test_d3_fr08_bad_payment_amounts_are_refused (shop.tests.DefectRegressionTests.test_d3_fr08_bad_payment_amounts_are_refused) ... ok
+test_d3_fr08_non_numeric_amount_on_the_screen_shows_a_message (shop.tests.DefectRegressionTests.test_d3_fr08_non_numeric_amount_on_the_screen_shows_a_message) ... ok
+test_d5_tampered_ids_do_not_cause_a_server_error (shop.tests.DefectRegressionTests.test_d5_tampered_ids_do_not_cause_a_server_error) ... ok
+test_d6_fr02_malformed_customer_email_is_refused (shop.tests.DefectRegressionTests.test_d6_fr02_malformed_customer_email_is_refused) ... ok
+test_live_migrate_creates_the_cache_table (shop.tests.DeploymentTests.test_live_migrate_creates_the_cache_table) ... ok
+test_live_settings_use_shared_cache_and_whitenoise (shop.tests.DeploymentTests.test_live_settings_use_shared_cache_and_whitenoise) ... ok
+test_lockout_count_works_with_the_database_cache (shop.tests.DeploymentTests.test_lockout_count_works_with_the_database_cache) ... ok
+test_setup_live_asks_again_for_an_invalid_email (shop.tests.DeploymentTests.test_setup_live_asks_again_for_an_invalid_email) ... ok
+test_setup_live_creates_stores_and_owner_with_hashed_password (shop.tests.DeploymentTests.test_setup_live_creates_stores_and_owner_with_hashed_password) ... ok
+test_setup_live_refuses_a_database_that_already_has_records (shop.tests.DeploymentTests.test_setup_live_refuses_a_database_that_already_has_records) ... ok
+test_setup_live_rejects_weak_and_mismatched_passwords_before_saving (shop.tests.DeploymentTests.test_setup_live_rejects_weak_and_mismatched_passwords_before_saving) ... ok
+test_a_picked_or_added_device_wins_over_the_device_on_file (shop.tests.DeviceListTests.test_a_picked_or_added_device_wins_over_the_device_on_file) ... ok
+test_add_needs_brand_model_and_type (shop.tests.DeviceListTests.test_add_needs_brand_model_and_type) ... ok
+test_adding_an_existing_device_does_not_duplicate_it (shop.tests.DeviceListTests.test_adding_an_existing_device_does_not_duplicate_it) ... ok
+test_free_text_model_is_refused_without_the_add_step (shop.tests.DeviceListTests.test_free_text_model_is_refused_without_the_add_step) ... ok
+test_listed_device_is_copied_to_the_customer_device (shop.tests.DeviceListTests.test_listed_device_is_copied_to_the_customer_device) ... ok
+test_missing_device_can_be_added_and_is_then_on_the_list (shop.tests.DeviceListTests.test_missing_device_can_be_added_and_is_then_on_the_list) ... ok
+test_starter_list_is_loaded_and_offered_at_check_in (shop.tests.DeviceListTests.test_starter_list_is_loaded_and_offered_at_check_in) ... ok
+test_unknown_list_id_is_refused (shop.tests.DeviceListTests.test_unknown_list_id_is_refused) ... ok
+test_fr02_no_phone_is_blocked_even_with_an_email (shop.tests.IntakeContactTests.test_fr02_no_phone_is_blocked_even_with_an_email) ... ok
+test_fr02_phone_only_customer_is_accepted (shop.tests.IntakeContactTests.test_fr02_phone_only_customer_is_accepted) ... ok
+test_fr02_search_is_by_phone_not_email (shop.tests.IntakeContactTests.test_fr02_search_is_by_phone_not_email) ... ok
+test_part_needing_buttons_are_marked_for_the_script (shop.tests.KeepTypedInputTests.test_part_needing_buttons_are_marked_for_the_script) ... ok
+test_refused_add_work_keeps_reason_and_opens_the_section (shop.tests.KeepTypedInputTests.test_refused_add_work_keeps_reason_and_opens_the_section) ... ok
+test_refused_mark_ready_keeps_notes_and_quantities (shop.tests.KeepTypedInputTests.test_refused_mark_ready_keeps_notes_and_quantities) ... ok
+test_refused_part_keeps_typed_values (shop.tests.KeepTypedInputTests.test_refused_part_keeps_typed_values) ... ok
+test_refused_repair_type_keeps_name_and_marks_minutes (shop.tests.KeepTypedInputTests.test_refused_repair_type_keeps_name_and_marks_minutes) ... ok
+test_refused_staff_account_keeps_names (shop.tests.KeepTypedInputTests.test_refused_staff_account_keeps_names) ... ok
+test_bench_shows_whether_pickup_notification_was_sent (shop.tests.NotificationTests.test_bench_shows_whether_pickup_notification_was_sent)
+2026-11-20: the bench shows the notification state, in the job list and on the job. ... ok
+test_fr12_email_from_store_account_logs_sender (shop.tests.NotificationTests.test_fr12_email_from_store_account_logs_sender) ... ok
+test_fr12_no_send_button_for_a_customer_without_email (shop.tests.NotificationTests.test_fr12_no_send_button_for_a_customer_without_email) ... ok
+test_fr12_not_sent_before_repair_complete (shop.tests.NotificationTests.test_fr12_not_sent_before_repair_complete) ... ok
+test_fr12_technician_may_send_pickup_notification (shop.tests.NotificationTests.test_fr12_technician_may_send_pickup_notification)
+Owner answer Oct 23 #1 (supersedes NFR05). ... ok
+test_manager_sending_from_bench_returns_to_bench (shop.tests.NotificationTests.test_manager_sending_from_bench_returns_to_bench) ... ok
+test_failed_email_still_submits (shop.tests.POApprovalEmailTests.test_failed_email_still_submits) ... ok
+test_screen_says_who_was_emailed (shop.tests.POApprovalEmailTests.test_screen_says_who_was_emailed) ... ok
+test_submit_emails_store_manager_and_owner_not_submitter (shop.tests.POApprovalEmailTests.test_submit_emails_store_manager_and_owner_not_submitter) ... ok
+test_payment_correction_rolls_back_when_audit_record_fails (shop.tests.PaymentVoidSecurityTests.test_payment_correction_rolls_back_when_audit_record_fails) ... ok
+test_receipt_excludes_voided_payments (shop.tests.PaymentVoidSecurityTests.test_receipt_excludes_voided_payments) ... ok
+test_repair_jobs_override_preserves_payment_and_physical_release_gates (shop.tests.PaymentVoidSecurityTests.test_repair_jobs_override_preserves_payment_and_physical_release_gates) ... ok
+test_service_refuses_technician_without_repair_jobs_access (shop.tests.PaymentVoidSecurityTests.test_service_refuses_technician_without_repair_jobs_access) ... ok
+test_stale_job_cannot_void_payment_after_release (shop.tests.PaymentVoidSecurityTests.test_stale_job_cannot_void_payment_after_release) ... ok
+test_technician_can_void_when_owner_grants_repair_jobs (shop.tests.PaymentVoidSecurityTests.test_technician_can_void_when_owner_grants_repair_jobs) ... ok
+test_void_cannot_cross_store_even_with_screen_override (shop.tests.PaymentVoidSecurityTests.test_void_cannot_cross_store_even_with_screen_override) ... ok
+test_void_requires_reason_and_cannot_repeat (shop.tests.PaymentVoidSecurityTests.test_void_requires_reason_and_cannot_repeat) ... ok
+test_void_retains_original_payment_and_excludes_it_from_balance (shop.tests.PaymentVoidSecurityTests.test_void_retains_original_payment_and_excludes_it_from_balance) ... ok
+test_fr09_adjustment_needs_reason (shop.tests.PurchasingTests.test_fr09_adjustment_needs_reason) ... ok
+test_fr09_partial_delivery_then_full_releases_waiting_job (shop.tests.PurchasingTests.test_fr09_partial_delivery_then_full_releases_waiting_job) ... ok
+test_fr10_order_cannot_be_received_until_approved (shop.tests.PurchasingTests.test_fr10_order_cannot_be_received_until_approved) ... ok
+test_fr10_reject_returns_to_draft_with_reason (shop.tests.PurchasingTests.test_fr10_reject_returns_to_draft_with_reason) ... ok
+test_fr11_import_rejects_file_with_bad_row (shop.tests.PurchasingTests.test_fr11_import_rejects_file_with_bad_row) ... ok
+test_fr11_import_valid_file (shop.tests.PurchasingTests.test_fr11_import_valid_file) ... ok
+test_low_stock_alert_shows_on_inventory (shop.tests.PurchasingTests.test_low_stock_alert_shows_on_inventory) ... ok
+test_nfr01_front_desk_cannot_open_inventory (shop.tests.PurchasingTests.test_nfr01_front_desk_cannot_open_inventory) ... ok
+test_nfr01_technician_cannot_approve_po (shop.tests.PurchasingTests.test_nfr01_technician_cannot_approve_po) ... ok
+test_additional_repair_needs_approval_and_adds_to_total (shop.tests.QuoteAtCheckInTests.test_additional_repair_needs_approval_and_adds_to_total) ... ok
+test_checkin_screen_posts_a_quote (shop.tests.QuoteAtCheckInTests.test_checkin_screen_posts_a_quote) ... ok
+test_checkin_without_parts_has_no_quote (shop.tests.QuoteAtCheckInTests.test_checkin_without_parts_has_no_quote) ... ok
+test_confirm_needs_an_approved_quote (shop.tests.QuoteAtCheckInTests.test_confirm_needs_an_approved_quote) ... ok
+test_confirmed_diagnosis_starts_repair_without_second_approval (shop.tests.QuoteAtCheckInTests.test_confirmed_diagnosis_starts_repair_without_second_approval) ... ok
+test_declined_additional_repair_keeps_the_approved_one (shop.tests.QuoteAtCheckInTests.test_declined_additional_repair_keeps_the_approved_one) ... ok
+test_manager_and_owner_repair_devices (shop.tests.QuoteAtCheckInTests.test_manager_and_owner_repair_devices) ... ok
+test_manager_can_be_assigned_a_job_but_front_desk_cannot (shop.tests.QuoteAtCheckInTests.test_manager_can_be_assigned_a_job_but_front_desk_cannot) ... ok
+test_only_owner_sets_labor (shop.tests.QuoteAtCheckInTests.test_only_owner_sets_labor) ... ok
+test_out_of_stock_approved_quote_waits_for_parts (shop.tests.QuoteAtCheckInTests.test_out_of_stock_approved_quote_waits_for_parts) ... ok
+test_quote_is_part_cost_plus_owner_labor_and_stored_approved (shop.tests.QuoteAtCheckInTests.test_quote_is_part_cost_plus_owner_labor_and_stored_approved) ... ok
+test_technician_checks_in_but_cannot_open_the_job_list (shop.tests.QuoteAtCheckInTests.test_technician_checks_in_but_cannot_open_the_job_list) ... ok
+test_unrepairable_drops_the_quote_fee (shop.tests.QuoteAtCheckInTests.test_unrepairable_drops_the_quote_fee) ... ok
+test_fr08_receipt_shows_charges_and_a_signature_line (shop.tests.ReceiptTests.test_fr08_receipt_shows_charges_and_a_signature_line) ... ok
+test_fr08_receipt_waits_for_pickup (shop.tests.ReceiptTests.test_fr08_receipt_waits_for_pickup) ... ok
+test_fr08_release_needs_the_signed_receipt (shop.tests.ReceiptTests.test_fr08_release_needs_the_signed_receipt) ... ok
+test_fr08_signed_release_records_the_paper_receipt (shop.tests.ReceiptTests.test_fr08_signed_release_records_the_paper_receipt) ... ok
+test_fr08_unrepaired_device_also_needs_the_signed_receipt (shop.tests.ReceiptTests.test_fr08_unrepaired_device_also_needs_the_signed_receipt) ... ok
+test_nfr04_receipt_has_no_passcode_and_technician_cannot_open_it (shop.tests.ReceiptTests.test_nfr04_receipt_has_no_passcode_and_technician_cannot_open_it) ... ok
+test_booking_cannot_run_past_closing (shop.tests.RepairTypeSlotTests.test_booking_cannot_run_past_closing) ... ok
+test_booking_copies_the_repair_type_length (shop.tests.RepairTypeSlotTests.test_booking_copies_the_repair_type_length) ... ok
+test_booking_screen_needs_a_repair_type (shop.tests.RepairTypeSlotTests.test_booking_screen_needs_a_repair_type) ... ok
+test_changing_a_type_keeps_existing_bookings (shop.tests.RepairTypeSlotTests.test_changing_a_type_keeps_existing_bookings) ... ok
+test_inactive_repair_type_cannot_be_booked (shop.tests.RepairTypeSlotTests.test_inactive_repair_type_cannot_be_booked) ... ok
+test_long_booking_blocks_the_technician_for_its_whole_length (shop.tests.RepairTypeSlotTests.test_long_booking_blocks_the_technician_for_its_whole_length) ... ok
+test_new_booking_cannot_run_into_a_later_one (shop.tests.RepairTypeSlotTests.test_new_booking_cannot_run_into_a_later_one) ... ok
+test_overlapping_bookings_fill_the_store (shop.tests.RepairTypeSlotTests.test_overlapping_bookings_fill_the_store) ... ok
+test_owner_sets_length_and_other_roles_cannot (shop.tests.RepairTypeSlotTests.test_owner_sets_length_and_other_roles_cannot) ... ok
+test_closing_every_screen_for_a_role_gives_a_clear_refusal (shop.tests.ScreenAccessTests.test_closing_every_screen_for_a_role_gives_a_clear_refusal) ... ok
+test_defaults_match_the_role_rules (shop.tests.ScreenAccessTests.test_defaults_match_the_role_rules) ... ok
+test_home_goes_to_the_first_open_screen (shop.tests.ScreenAccessTests.test_home_goes_to_the_first_open_screen) ... ok
+test_only_the_owner_reaches_the_access_screen (shop.tests.ScreenAccessTests.test_only_the_owner_reaches_the_access_screen) ... ok
+test_owner_can_close_a_screen_for_a_role (shop.tests.ScreenAccessTests.test_owner_can_close_a_screen_for_a_role) ... ok
+test_owner_can_open_a_screen_for_a_role (shop.tests.ScreenAccessTests.test_owner_can_open_a_screen_for_a_role) ... ok
+test_owner_cannot_lock_themself_out_of_access (shop.tests.ScreenAccessTests.test_owner_cannot_lock_themself_out_of_access) ... ok
+test_reset_restores_defaults (shop.tests.ScreenAccessTests.test_reset_restores_defaults) ... ok
+test_saving_the_defaults_stores_nothing (shop.tests.ScreenAccessTests.test_saving_the_defaults_stores_nothing) ... ok
+test_screen_access_does_not_override_business_rules (shop.tests.ScreenAccessTests.test_screen_access_does_not_override_business_rules) ... ok
+test_the_matrix_page_lists_every_screen_and_role (shop.tests.ScreenAccessTests.test_the_matrix_page_lists_every_screen_and_role) ... ok
+test_dashboard_override_only_returns_home_store (shop.tests.SecurityPermissionFixTests.test_dashboard_override_only_returns_home_store) ... ok
+test_dashboard_stays_closed_by_default_and_owner_sees_both (shop.tests.SecurityPermissionFixTests.test_dashboard_stays_closed_by_default_and_owner_sees_both) ... ok
+test_manager_can_manage_front_desk_and_technician (shop.tests.SecurityPermissionFixTests.test_manager_can_manage_front_desk_and_technician) ... ok
+test_manager_can_still_self_approve_po_but_technician_cannot (shop.tests.SecurityPermissionFixTests.test_manager_can_still_self_approve_po_but_technician_cannot) ... ok
+test_manager_can_update_own_profile_without_changing_role (shop.tests.SecurityPermissionFixTests.test_manager_can_update_own_profile_without_changing_role) ... ok
+test_manager_cannot_create_manager_or_owner (shop.tests.SecurityPermissionFixTests.test_manager_cannot_create_manager_or_owner) ... ok
+test_manager_cannot_manage_other_store_accounts (shop.tests.SecurityPermissionFixTests.test_manager_cannot_manage_other_store_accounts) ... ok
+test_manager_cannot_reset_peer_or_demote_peer (shop.tests.SecurityPermissionFixTests.test_manager_cannot_reset_peer_or_demote_peer) ... ok
+test_owner_can_create_and_reset_manager (shop.tests.SecurityPermissionFixTests.test_owner_can_create_and_reset_manager) ... ok
+test_staff_screen_override_cannot_escalate_low_privilege_accounts (shop.tests.SecurityPermissionFixTests.test_staff_screen_override_cannot_escalate_low_privilege_accounts) ... ok
+test_technician_contact_lookup_and_assigned_passcode_remain_available (shop.tests.SecurityPermissionFixTests.test_technician_contact_lookup_and_assigned_passcode_remain_available) ... ok
+test_f11_oversized_import_is_refused (shop.tests.SecurityTests.test_f11_oversized_import_is_refused) ... ok
+test_f1_debug_is_off_unless_asked_for (shop.tests.SecurityTests.test_f1_debug_is_off_unless_asked_for) ... ok
+test_f1_live_settings_refuse_to_start_without_keys (shop.tests.SecurityTests.test_f1_live_settings_refuse_to_start_without_keys) ... ok
+test_f2_live_settings_use_https_only_cookies (shop.tests.SecurityTests.test_f2_live_settings_use_https_only_cookies) ... ok
+test_f3_session_ends_after_inactivity_and_browser_close (shop.tests.SecurityTests.test_f3_session_ends_after_inactivity_and_browser_close) ... ok
+test_f4_account_locks_after_repeated_failures (shop.tests.SecurityTests.test_f4_account_locks_after_repeated_failures) ... ok
+test_f4_common_numeric_or_short_password_is_refused (shop.tests.SecurityTests.test_f4_common_numeric_or_short_password_is_refused) ... ok
+test_f4_inactive_account_is_told_so_only_with_right_password (shop.tests.SecurityTests.test_f4_inactive_account_is_told_so_only_with_right_password) ... ok
+test_f4_last_tries_are_warned (shop.tests.SecurityTests.test_f4_last_tries_are_warned) ... ok
+test_f4_nobody_can_end_a_lock_early (shop.tests.SecurityTests.test_f4_nobody_can_end_a_lock_early)
+The unlock was removed: a lock ends only by itself. ... ok
+test_f4_successful_sign_in_resets_the_count (shop.tests.SecurityTests.test_f4_successful_sign_in_resets_the_count) ... ok
+test_f4_the_failure_that_locks_says_locked_with_minutes (shop.tests.SecurityTests.test_f4_the_failure_that_locks_says_locked_with_minutes)
+2026-11-20: a locked account is told it is locked, not that the password is wrong. ... ok
+test_f6_passcode_deleted_when_device_released (shop.tests.SecurityTests.test_f6_passcode_deleted_when_device_released) ... ok
+test_f9_seed_refuses_when_debug_is_off (shop.tests.SecurityTests.test_f9_seed_refuses_when_debug_is_off) ... ok
+test_g1_form_post_without_csrf_token_is_refused (shop.tests.SecurityTests.test_g1_form_post_without_csrf_token_is_refused) ... ok
+test_g1_other_store_records_cannot_be_opened_by_id (shop.tests.SecurityTests.test_g1_other_store_records_cannot_be_opened_by_id) ... ok
+test_g1_staff_cannot_change_own_role (shop.tests.SecurityTests.test_g1_staff_cannot_change_own_role) ... ok
+test_g1_store_switch_does_not_redirect_off_site (shop.tests.SecurityTests.test_g1_store_switch_does_not_redirect_off_site) ... ok
+test_g1_technician_cannot_open_another_technicians_job (shop.tests.SecurityTests.test_g1_technician_cannot_open_another_technicians_job) ... ok
+test_job_screen_print_links_open_the_dialog (shop.tests.ThermalSlipTests.test_job_screen_print_links_open_the_dialog) ... ok
+test_print_dialog_opens_only_when_asked (shop.tests.ThermalSlipTests.test_print_dialog_opens_only_when_asked) ... ok
+test_ticket_and_receipt_use_the_slip_layout (shop.tests.ThermalSlipTests.test_ticket_and_receipt_use_the_slip_layout) ... ok
+test_cannot_void_another_jobs_payment (shop.tests.VoidPaymentTests.test_cannot_void_another_jobs_payment) ... ok
+test_mistaken_payment_is_voided_and_logged (shop.tests.VoidPaymentTests.test_mistaken_payment_is_voided_and_logged) ... ok
+test_payment_cannot_be_voided_after_release (shop.tests.VoidPaymentTests.test_payment_cannot_be_voided_after_release) ... ok
+test_release_is_blocked_again_after_voiding_the_payment (shop.tests.VoidPaymentTests.test_release_is_blocked_again_after_voiding_the_payment) ... ok
+test_screen_voids_payment (shop.tests.VoidPaymentTests.test_screen_voids_payment) ... ok
+test_technician_without_jobs_access_cannot_void_payment (shop.tests.VoidPaymentTests.test_technician_without_jobs_access_cannot_void_payment) ... ok
+test_added_part_in_stock_is_taken_on_completion (shop.tests.WorkflowTests.test_added_part_in_stock_is_taken_on_completion) ... ok
+test_assigned_technician_records_approval_on_bench (shop.tests.WorkflowTests.test_assigned_technician_records_approval_on_bench)
+2026-11-20: the customer's answer can be recorded from the assigned job as well. ... ok
+test_bench_add_work_charges_or_adds_free_parts (shop.tests.WorkflowTests.test_bench_add_work_charges_or_adds_free_parts) ... ok
+test_bench_completion_form_consumes_parts (shop.tests.WorkflowTests.test_bench_completion_form_consumes_parts) ... ok
+test_checkin_lists_jobs_waiting_for_the_customers_answer (shop.tests.WorkflowTests.test_checkin_lists_jobs_waiting_for_the_customers_answer) ... ok
+test_fr04_technician_sees_only_own_queue (shop.tests.WorkflowTests.test_fr04_technician_sees_only_own_queue) ... ok
+test_fr05_decline_blocks_repair (shop.tests.WorkflowTests.test_fr05_decline_blocks_repair) ... ok
+test_fr05_quote_total_and_approval_recorded (shop.tests.WorkflowTests.test_fr05_quote_total_and_approval_recorded) ... ok
+test_fr06_out_of_stock_approval_waits_for_parts (shop.tests.WorkflowTests.test_fr06_out_of_stock_approval_waits_for_parts) ... ok
+test_fr07_completion_takes_quoted_parts_off_stock (shop.tests.WorkflowTests.test_fr07_completion_takes_quoted_parts_off_stock) ... ok
+test_fr07_completion_uses_the_quantities_the_technician_entered (shop.tests.WorkflowTests.test_fr07_completion_uses_the_quantities_the_technician_entered) ... ok
+test_fr07_stock_cannot_go_below_zero (shop.tests.WorkflowTests.test_fr07_stock_cannot_go_below_zero) ... ok
+test_fr08_unpaid_release_blocked_then_paid_release_succeeds (shop.tests.WorkflowTests.test_fr08_unpaid_release_blocked_then_paid_release_succeeds) ... ok
+test_fr12_marking_ready_sends_no_email (shop.tests.WorkflowTests.test_fr12_marking_ready_sends_no_email)
+Owner, Oct 23 #1: the pickup notification is sent by a click, never automatically. ... ok
+test_nfr02_every_change_records_who_and_when (shop.tests.WorkflowTests.test_nfr02_every_change_records_who_and_when) ... ok
+test_other_technician_cannot_record_approval (shop.tests.WorkflowTests.test_other_technician_cannot_record_approval) ... ok
+test_parts_received_for_a_waiting_job_are_taken_once_on_completion (shop.tests.WorkflowTests.test_parts_received_for_a_waiting_job_are_taken_once_on_completion) ... ok
+test_technician_can_claim_open_job (shop.tests.WorkflowTests.test_technician_can_claim_open_job) ... ok
+test_unrepaired_device_released_without_fee (shop.tests.WorkflowTests.test_unrepaired_device_released_without_fee) ... ok
+
+----------------------------------------------------------------------
+Ran 182 tests in 111.980s
+
+OK
+Destroying test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+
+  Applying shop.0008_payment_voids_audit_events... OK
+System check identified no issues (0 silenced).

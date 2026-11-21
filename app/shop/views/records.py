@@ -156,6 +156,7 @@ def staff_edit(request, pk=None):
 
 
 @screen_required("staff")
+@role_required(m.OWNER, m.MANAGER)
 def supplier_edit(request, pk=None):
     supplier = get_object_or_404(m.Supplier, pk=pk) if pk else m.Supplier()
     if request.method == "POST":
@@ -181,6 +182,7 @@ def supplier_edit(request, pk=None):
 
 
 @screen_required("staff")
+@role_required(m.OWNER)
 def repair_type_edit(request, pk=None):
     """How long an appointment for each kind of repair holds a technician (2026-11-20)."""
     repair_type = get_object_or_404(m.RepairType, pk=pk) if pk else m.RepairType()
@@ -213,6 +215,7 @@ def repair_type_edit(request, pk=None):
 
 
 @screen_required("staff")
+@role_required(m.OWNER, m.MANAGER)
 def store_edit(request, pk):
     if request.user.role != m.OWNER and request.user.store_id != pk:
         raise PermissionDenied("Managers maintain their own store only.")

@@ -19,7 +19,7 @@ With `QP_DEBUG=1` set, `.venv\Scripts\python app\manage.py seed_training --yes` 
 
 ## Tests
 
-`$env:QP_DB_ENGINE='sqlite'; .venv\Scripts\python app\manage.py test shop` runs 157 tests named after the catalogue's acceptance checks. They include the security cases (a Technician approving an order, a Front Desk user opening inventory, an unpaid release, stock below zero, a Manager creating an Owner account, sign-in lockout, weak passwords, other-store records by ID, CSRF, settings that refuse to start without keys) and the live-deployment checks (the `setup_live` command, the shared lockout cache, and the live settings and migration).
+`$env:QP_DB_ENGINE='sqlite'; .venv\Scripts\python app\manage.py test shop` runs 182 regression tests; the November 20 local preview run passed all 182 (see planning/verification/current-regression.txt). Cases trace to the catalogue's acceptance checks. They include the security cases (a Technician approving an order, a Front Desk user opening inventory, an unpaid release, stock below zero, a Manager creating an Owner account, sign-in lockout, weak passwords, other-store records by ID, CSRF, settings that refuse to start without keys) and the live-deployment checks (the `setup_live` command, the shared lockout cache, and the live settings and migration).
 
 ## Printer setup (each front desk)
 
@@ -39,7 +39,7 @@ A new live database starts empty. Run `python app/manage.py setup_live` once, at
 
 | Path | What it holds |
 |---|---|
-| `shop/models.py` | The 17 tables, named as in the physical ERD |
+| `shop/models.py` | The 21 business tables, named as in the physical ERD (including D7 AuditEvent) |
 | `shop/services.py` | Every business rule, one function per workflow step (DFD 1.0 to 9.0) |
 | `shop/permissions.py` | Who may do what (NFR01), checked on the server |
 | `shop/auth.py` | Sign-in lockout after repeated failures |

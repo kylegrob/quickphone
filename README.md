@@ -8,7 +8,7 @@ Prepared for Quick Phone Repair & Designs by Kyle Robertson, Ehsanullah Pardisi,
 
 - **Front Desk:** book appointments, check customers in, print claim tickets, record the customer's quote decision and payment, send the pickup notification, and release the device.
 - **Technicians:** claim jobs, diagnose, quote parts and labor, record repair work and mark a device ready for pickup.
-- **Managers:** keep inventory, raise and receive purchase orders.
+- **Managers:** keep inventory, raise and receive purchase orders, and approve them.
 - **Owner:** approve purchase orders, set labor rates, screen access and repair-type lengths, and see both stores on one dashboard.
 
 ## Repository layout

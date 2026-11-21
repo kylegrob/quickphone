@@ -37,3 +37,6 @@ desktop.ini
 /feedback/
 /submitted/
 /.training-build/
+
+# Local planning render review
+/.planning-review/

@@ -1,19 +1,19 @@
-# Business rules decided with the owner
+# Business rules and implementation decisions
 
 These are the decisions that shape how the application behaves. Each is either direction the owner gave or a team decision made while building, marked "to confirm" until the owner agrees. The requirements catalogue ([requirements-catalog.docx](requirements-catalog.docx)) lists the same decisions against each requirement.
 
 ## Owner direction, October 30
 
 - **The quote is shown at check-in.** It is the part cost plus the labor the Owner sets for each part (Inventory, edit a part; only the Owner can change it). Clicking Create job approves the quote, so repair needs no second approval. Leave the parts blank when the device needs diagnosis first, and the technician quotes as before.
-- **Only an additional repair is re-approved.** From Diagnosing or In Repair the technician sends an additional repair; Front Desk records the answer. A declined additional repair leaves the approved repair going. The approved total is the sum of the approved quotes.
-- **Technicians can check in customers** and print the claim ticket, but cannot open the job list, payment or release.
+- **Only an additional repair is re-approved.** From Diagnosing or In Repair the technician sends an additional repair; Front Desk records the answer; the assigned repairer may also record the customer’s actual decision from the bench (team direction, Nov 20). A declined additional repair leaves the approved repair going. The approved total is the sum of the approved quotes.
+- **Technicians can check in customers** and print the claim ticket, with no Repair jobs access by default. If the Owner grants that screen, they may record payments, void them and release devices at their permitted store, subject to all payment, ID and signed-receipt gates (team direction, Nov 20).
 - **Managers and the Owner can repair devices.** They can be assigned a job, claim an open one and use the same repair screen ("My repair jobs").
 - **Brand and model come from a list.** Check-in picks the device from a list grouped by brand. "Device not on the list? Add it" adds a new type, brand and model for everyone, and a model added with different capitalization is matched to the existing one. The starter list is in `app/shop/device_catalog.py`.
 - **The Owner sets screen access by role.** The Access screen (Owner only) is a table of seven screens by four roles; the defaults are the earlier fixed rules and only changed boxes are stored. It controls which screens a role can open, not the rules inside a screen: only a Manager or the Owner approves a purchase order, technicians work only on their own jobs, and only the Owner can give the Owner role. Opening Staff, suppliers and stores does not grant account-management rights: only the Owner and Managers may create or edit accounts. Managers manage Front Desk and Technician accounts in their home store; only the Owner creates or edits another Manager or an Owner account. Managers may update their own profile without changing role or deactivating themselves.
 
 ## Team decisions, October 28 (to confirm)
 
-- **Technicians may send the pickup notification** (owner answer #1, October 23) but never see the customer's address.
+- **Technicians may send the pickup notification** (owner answer #1, October 23) ; the earlier restriction on customer email visibility is superseded by the November 2 team decision below.
 - **Quoted parts are stored in a QUOTE_LINE table**, so the technician sees them again after approval. A JOB_PART "Needed" row keeps its meaning: a part the job is waiting for.
 - **A declined quote returns the device unrepaired.** Front Desk may record a fee, but none is required to release it.
 - **The passcode** is visible to the assigned technician, Managers and the Owner.
@@ -23,9 +23,9 @@ These are the decisions that shape how the application behaves. Each is either d
 
 ## Team decisions, November 2 to 20 (to confirm)
 
-- **Technicians see customer phone and email** on the check-in screen, because they check customers in.
+- **Technicians see customer phone and email** where other staff roles do, including check-in and their assigned bench jobs. This reverses the earlier contact restriction and awaits owner confirmation.
 - **Parts come off stock when a job is marked ready**, in one step, and a shortfall blocks completion.
-- **Appointment length depends on the repair type.** Book appointment first asks for the repair type; the time slots then show only start times where that length fits. A booking holds its technician for its whole length, and one that would run past closing (the last slot plus one slot) cannot be picked. The Owner or a Manager changes the lengths, in 15-minute steps, under Staff, stores and suppliers. A booking keeps the length it was made with if the type changes later.
+- **Appointment length depends on the repair type.** Book appointment first asks for the repair type; the time slots then show only start times where that length fits. A booking holds its technician for its whole length, and one that would run past closing (the last slot plus one slot) cannot be picked. Only the Owner changes the lengths, in 15-minute steps, under Staff, stores and suppliers. A booking keeps the length it was made with if the type changes later.
 - **Approvers are emailed when an order is submitted.** The store's Managers and the Owner (not the person who submitted it) get an email from the store account; a failed email does not undo the submission.
 - **A payment recorded by mistake can be voided** from the job page until the device is released. A reason is required. The original payment remains with its amount, method and payment time, plus who voided it and when. Voids are excluded from the paid total and receipt; job history and security audit records retain the correction. Technicians may void payments when the Owner grants Repair jobs access (Kyle, Nov 20).
 - **The technician bench shows whether the pickup notification was sent**, on the job and in the job list, with the Send button beside it.
