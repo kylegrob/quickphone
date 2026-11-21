@@ -2,10 +2,10 @@
 {% block title %}{{ job.ticket_number }}{% endblock %}
 {% block content %}
 <div class="page-head">
-  <div><h1><span class="mono">{{ job.ticket_number }}</span> · {{ job.device }}</h1>
-  <p>{{ job.store.store_name }} · checked in {{ job.check_in_at|date:"M j, g:i A" }}</p></div>
+  <div><h1><span class="mono">{{ job.ticket_number }}</span> Â· {{ job.device }}</h1>
+  <p>{{ job.store.store_name }} Â· checked in {{ job.check_in_at|date:"M j, g:i A" }}</p></div>
   <div class="actions"><span class="pill {{ job.status|slugify }}" style="font-size:16px">{{ job.status }}</span>
-  <a class="btn" href="{% url 'job_ticket' job.pk %}">Reprint ticket and tag</a></div>
+  <a class="btn" href="{% url 'job_ticket' job.pk %}?print=1">Reprint ticket and tag</a></div>
 </div>
 
 <div class="grid">
@@ -13,8 +13,8 @@
   <section class="card">
     {% include "shop/_steps.html" %}
     <dl class="kv">
-      <dt>Customer</dt><dd><strong>{{ job.customer }}</strong>{% if can_contact %} · {{ job.customer.phone }} · {{ job.customer.email|default:"no email on file" }}{% endif %}</dd>
-      <dt>Device</dt><dd>{{ job.device.device_type|default:"" }} {{ job.device }}{% if job.device.serial_or_imei %} · <span class="mono">{{ job.device.serial_or_imei }}</span>{% endif %}</dd>
+      <dt>Customer</dt><dd><strong>{{ job.customer }}</strong>{% if can_contact %} Â· {{ job.customer.phone }} Â· {{ job.customer.email|default:"no email on file" }}{% endif %}</dd>
+      <dt>Device</dt><dd>{{ job.device.device_type|default:"" }} {{ job.device }}{% if job.device.serial_or_imei %} Â· <span class="mono">{{ job.device.serial_or_imei }}</span>{% endif %}</dd>
       <dt>Reported problem</dt><dd>{{ job.reported_issue }}</dd>
       <dt>Condition</dt><dd>{{ job.intake_condition|default:"Not recorded" }}</dd>
       <dt>Passcode</dt><dd>{% if not job.device_passcode %}None given{% elif passcode %}<span class="mono">{{ passcode }}</span>{% else %}On file (assigned technician, Managers and Owner only){% endif %}</dd>
@@ -36,12 +36,7 @@
   <section class="card">
     <h2>Quote</h2>
     {% include "shop/_quotes.html" %}
-    {% if job.status == "Awaiting Approval" %}
-      <div class="actions" style="margin-top:14px">
-        <form method="post" class="inline">{% csrf_token %}<input type="hidden" name="action" value="approve"><button class="btn primary">Customer approved</button></form>
-        <form method="post" class="inline" onsubmit="return confirm('Record that the customer declined? The device goes back unrepaired.')">{% csrf_token %}<input type="hidden" name="action" value="decline"><button class="btn danger">Customer declined</button></form>
-      </div>
-    {% endif %}
+    {% include "shop/_decision.html" %}
   </section>
 
   {% include "shop/_history.html" %}
@@ -70,7 +65,15 @@
       <dt>Paid</dt><dd>${{ job.amount_paid|floatformat:2 }}</dd>
       {% if job.status == "Ready for Pickup" %}<dt><strong>Still due</strong></dt><dd><strong>${{ due|floatformat:2 }}</strong></dd>{% endif %}
     </dl>
-    {% for p in job.payments.all %}<p class="small muted">{{ p.paid_at|date:"M j, g:i A" }}: ${{ p.amount }} {{ p.method }} <span class="pill paid">{{ p.payment_status }}</span></p>{% endfor %}
+    {% for p in job.payments.all %}
+    <div class="small"><p>{{ p.paid_at|date:"M j, g:i A" }}: ${{ p.amount }} {{ p.method }} <span class="pill">{{ p.payment_status }}</span></p>
+    {% if p.payment_status == "Paid" %}
+    <form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="action" value="void_payment"><input type="hidden" name="payment_id" value="{{ p.pk }}">
+      <label for="void-reason-{{ p.pk }}">Reason for voiding</label><input id="void-reason-{{ p.pk }}" name="reason" maxlength="200" required>
+      <button class="btn small danger">Void payment</button>
+    </form>
+    {% else %}<p class="muted">Voided {{ p.voided_at|date:"M j, g:i A" }} by {{ p.voided_by }}: {{ p.void_reason }}</p>{% endif %}</div>
+    {% endfor %}
     {% if job.status == "Ready for Pickup" and due > 0 or job.status == "Returned Unrepaired" %}
     <form method="post">{% csrf_token %}<input type="hidden" name="action" value="payment">
       <h3>{% if job.status == "Returned Unrepaired" %}Fee (optional){% else %}Record payment{% endif %}</h3>
@@ -81,18 +84,43 @@
       <p><button class="btn block">Record payment</button></p>
     </form>
     {% endif %}
-    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="release">
+    <form method="post" id="release-form">{% csrf_token %}<input type="hidden" name="action" value="release">
       <h3>Release device</h3>
-      <label style="font-weight:400;display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="id_verified" style="width:22px;height:22px"> Photo ID checked</label>
-      <button class="btn primary block" {% if job.status == "Ready for Pickup" and due > 0 %}disabled title="Record payment first"{% endif %}>Release and close job</button>
-      {% if job.status == "Ready for Pickup" and due > 0 %}<p class="hint">Record payment first.</p>{% endif %}
+      <p><a class="btn block" href="{% url 'job_receipt' job.pk %}?print=1">Print receipt</a></p>
+      <label style="font-weight:400;display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="id_verified" class="release-check" required style="width:22px;height:22px"> Photo ID checked</label>
+      <label style="font-weight:400;display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="receipt_signed" class="release-check" required style="width:22px;height:22px"> Customer signed the receipt</label>
+      {% if job.status == "Ready for Pickup" and due > 0 %}
+        <button class="btn primary block" disabled>Release and close job</button>
+        <p class="hint">Record payment first.</p>
+      {% else %}
+        <button class="btn primary block" id="release-btn" disabled>Release and close job</button>
+        <p class="hint" id="release-hint" aria-live="polite">Tick both boxes to release.</p>
+      {% endif %}
     </form>
   </section>
   {% endif %}
 
   {% if job.status == "Closed" %}
-  <section class="card"><h2>Released</h2><p>{{ job.picked_up_at|date:"M j, g:i A" }} · photo ID checked · paid ${{ job.amount_paid|floatformat:2 }}</p></section>
+  <section class="card"><h2>Released</h2><p>{{ job.picked_up_at|date:"M j, g:i A" }} Â· photo ID checked Â· receipt signed Â· paid ${{ job.amount_paid|floatformat:2 }}</p><p><a class="btn block" href="{% url 'job_receipt' job.pk %}?print=1">Reprint receipt</a></p></section>
   {% endif %}
 </aside>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+// Release stays disabled until both boxes are ticked, so a missing tick never reloads the page
+// and clears the other one. The server still refuses a release without both.
+(function () {
+  const btn = document.getElementById('release-btn'), hint = document.getElementById('release-hint');
+  if (!btn) return;
+  const boxes = document.querySelectorAll('.release-check');
+  function sync() {
+    const ok = [...boxes].every(b => b.checked);
+    btn.disabled = !ok;
+    hint.textContent = ok ? '' : 'Tick both boxes to release.';
+  }
+  boxes.forEach(b => b.addEventListener('change', sync));
+  sync();
+})();
+</script>
 {% endblock %}

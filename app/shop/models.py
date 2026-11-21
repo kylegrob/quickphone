@@ -1,9 +1,11 @@
-"""Tables of the physical ERD (Sprint 3 DFD and ERD Models, Appendix A).
+"""Tables of the physical ERD (see planning/diagrams/erd).
 
-Table and column names match the physical data dictionary. Two additions were
-approved during the Sprint 4 build (2026-10-28) and must be carried into the ERD:
-QUOTE_LINE in D3 (the parts on a quote) and PART.sku.
+Table and column names match the physical data dictionary. Two tables or columns
+were added during the build and are carried into the ERD: QUOTE_LINE in D3 (the
+parts on a quote) and PART.sku.
 """
+from datetime import timedelta
+
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.db import models
 from django.db.models import Q
@@ -115,7 +117,7 @@ class Customer(models.Model):
     customer_id = models.AutoField(primary_key=True)
     first_name = models.CharField(max_length=40)
     last_name = models.CharField(max_length=40)
-    phone = models.CharField(max_length=20, db_index=True)
+    phone = models.CharField(max_length=20, db_index=True)  # required; email is optional
     email = models.EmailField(max_length=120, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -164,6 +166,26 @@ class DeviceModel(models.Model):
 APPT_BOOKED, APPT_CHECKED_IN, APPT_CANCELLED = "Booked", "Checked In", "Cancelled"
 
 
+class RepairType(models.Model):
+    """What the customer books in for; sets how long the appointment holds a technician (2026-11-20)."""
+
+    repair_type_id = models.AutoField(primary_key=True)
+    type_name = models.CharField(max_length=60, unique=True)
+    slot_minutes = models.PositiveSmallIntegerField()
+    active_flag = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "repair_type"
+        ordering = ["type_name"]
+        constraints = [
+            models.CheckConstraint(condition=Q(slot_minutes__gte=15, slot_minutes__lte=480),
+                                   name="repair_type_minutes_ck")
+        ]
+
+    def __str__(self):
+        return self.type_name
+
+
 class Appointment(models.Model):
     appointment_id = models.AutoField(primary_key=True)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, db_column="customer_id")
@@ -172,6 +194,11 @@ class Appointment(models.Model):
         Employee, on_delete=models.PROTECT, db_column="technician_id", null=True, blank=True, related_name="+"
     )
     scheduled_at = models.DateTimeField()
+    repair_type = models.ForeignKey(
+        RepairType, on_delete=models.PROTECT, db_column="repair_type_id", null=True, blank=True
+    )
+    # Copied from the repair type when booked, so changing a type does not move existing bookings.
+    duration_minutes = models.PositiveSmallIntegerField(default=30)
     appt_status = models.CharField(
         max_length=12, default=APPT_BOOKED, choices=choices([APPT_BOOKED, APPT_CHECKED_IN, APPT_CANCELLED])
     )
@@ -184,6 +211,10 @@ class Appointment(models.Model):
                 condition=Q(appt_status__in=[APPT_BOOKED, APPT_CHECKED_IN, APPT_CANCELLED]), name="appt_status_ck"
             )
         ]
+
+    @property
+    def ends_at(self):
+        return self.scheduled_at + timedelta(minutes=self.duration_minutes)
 
 
 # D6 Suppliers ------------------------------------------------------------------
@@ -208,7 +239,7 @@ class Supplier(models.Model):
 
 class Part(models.Model):
     part_id = models.AutoField(primary_key=True)
-    sku = models.CharField(max_length=30, unique=True)  # added in Sprint 4 (Prototype A)
+    sku = models.CharField(max_length=30, unique=True)  # shown on the Workspace design's inventory screen
     default_supplier = models.ForeignKey(
         Supplier, on_delete=models.PROTECT, db_column="default_supplier_id", null=True, blank=True
     )
@@ -398,7 +429,7 @@ class RepairJob(models.Model):
 
     @property
     def amount_paid(self):
-        return sum((p.amount for p in self.payments.all()), 0)
+        return sum((p.amount for p in self.payments.all() if p.payment_status == "Paid"), 0)
 
 
 class JobStatusHistory(models.Model):
@@ -441,7 +472,7 @@ class Quote(models.Model):
 
 
 class QuoteLine(models.Model):
-    """Added in Sprint 4 (approved 2026-10-28): the parts a quote includes."""
+    """The parts a quote includes."""
 
     quote_line_id = models.AutoField(primary_key=True)
     quote = models.ForeignKey(Quote, on_delete=models.CASCADE, db_column="quote_id", related_name="lines")
@@ -466,14 +497,21 @@ class Payment(models.Model):
     repair_job = models.ForeignKey(RepairJob, on_delete=models.PROTECT, db_column="repair_job_id", related_name="payments")
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     method = models.CharField(max_length=12, choices=choices(["Card", "Cash"]))
-    payment_status = models.CharField(max_length=10, default="Paid", choices=choices(["Paid"]))
+    payment_status = models.CharField(max_length=10, default="Paid", choices=choices(["Paid", "Voided"]))
     paid_at = models.DateTimeField(auto_now_add=True)
+    voided_at = models.DateTimeField(null=True, blank=True)
+    voided_by = models.ForeignKey(Employee, on_delete=models.PROTECT, null=True, blank=True, related_name="voided_payments")
+    void_reason = models.CharField(max_length=200, blank=True, default="")
 
     class Meta:
         db_table = "payment"
         constraints = [
             models.CheckConstraint(condition=Q(amount__gt=0), name="payment_amount_ck"),
             models.CheckConstraint(condition=Q(method__in=["Card", "Cash"]), name="payment_method_ck"),
+            models.CheckConstraint(
+                condition=(Q(payment_status="Paid", voided_at__isnull=True, voided_by__isnull=True, void_reason="")
+                           | (Q(payment_status="Voided", voided_at__isnull=False, voided_by__isnull=False)
+                              & ~Q(void_reason=""))), name="payment_void_details_ck"),
         ]
 
 
@@ -498,3 +536,37 @@ class JobPart(models.Model):
             models.CheckConstraint(condition=Q(quantity__gt=0), name="job_part_qty_ck"),
             models.CheckConstraint(condition=Q(part_status__in=[PART_NEEDED, PART_USED]), name="job_part_status_ck"),
         ]
+
+
+# D7 Staff & Stores: security events (no credentials or device passcodes).
+class AuditEventQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValueError("Audit events cannot be edited.")
+
+    def delete(self):
+        raise ValueError("Audit events cannot be deleted.")
+
+
+class AuditEvent(models.Model):
+    objects = AuditEventQuerySet.as_manager()
+
+    occurred_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    actor = models.ForeignKey(Employee, on_delete=models.PROTECT, null=True, blank=True, related_name="audit_events")
+    store = models.ForeignKey(Store, on_delete=models.PROTECT, null=True, blank=True)
+    action = models.CharField(max_length=60, db_index=True)
+    target_type = models.CharField(max_length=40, blank=True)
+    target_id = models.CharField(max_length=64, blank=True)
+    outcome = models.CharField(max_length=10, default="Success", choices=choices(["Success", "Failure", "Denied"]))
+    details = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "audit_event"
+        ordering = ["-occurred_at", "-pk"]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError("Audit events cannot be edited.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Audit events cannot be deleted.")

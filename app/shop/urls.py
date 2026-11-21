@@ -11,6 +11,7 @@ urlpatterns = [
     path("store/", records.switch_store, name="switch_store"),
     path("access/", records.access, name="access"),
     path("dashboard/", records.dashboard, name="dashboard"),
+    path("audit/", records.audit_events, name="audit_events"),
     # Front Desk: appointments, check-in, approval, pickup (DFD 1.0, 2.0, 5.0, 6.0)
     path("checkin/", desk.checkin, name="checkin"),
     path("appointments/new/", desk.appointment_edit, name="appointment_new"),
@@ -20,6 +21,7 @@ urlpatterns = [
     path("jobs/<int:pk>/", desk.job_detail, name="job_detail"),
     path("jobs/<int:pk>/ticket/", desk.job_ticket, name="job_ticket"),
     path("jobs/<int:pk>/notify/", desk.job_notify, name="job_notify"),
+    path("jobs/<int:pk>/receipt/", desk.job_receipt, name="job_receipt"),
     # Technician: diagnosis, quote, repair (DFD 3.0, 4.0)
     path("bench/", bench.bench, name="bench"),
     path("bench/<int:pk>/", bench.bench, name="bench_job"),
@@ -36,5 +38,7 @@ urlpatterns = [
     path("staff/<int:pk>/", records.staff_edit, name="staff_edit"),
     path("suppliers/new/", records.supplier_edit, name="supplier_new"),
     path("suppliers/<int:pk>/", records.supplier_edit, name="supplier_edit"),
+    path("repair-types/new/", records.repair_type_edit, name="repair_type_new"),
+    path("repair-types/<int:pk>/", records.repair_type_edit, name="repair_type_edit"),
     path("stores/<int:pk>/", records.store_edit, name="store_edit"),
 ]

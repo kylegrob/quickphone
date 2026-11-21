@@ -1,15 +1,19 @@
 """Home routing, the Owner's dashboard (FR13) and shop records: staff, suppliers, stores (FR14)."""
 from django.contrib import messages
 from django.db import transaction
+from django.core.paginator import Paginator
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.password_validation import ValidationError, validate_password
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 
+from ..audit import record
 from .. import models as m
 from .. import services
 from ..permissions import NAV, SCREENS, can_open, role_required, screen_required
+from ..auth import is_locked, minutes_left
+from .common import keep_typed, to_int
 
 HOME = {m.OWNER: "dashboard", m.MANAGER: "inventory", m.TECHNICIAN: "bench", m.FRONT_DESK: "checkin"}
 
@@ -28,7 +32,7 @@ def home(request):
 @role_required(m.OWNER)
 def switch_store(request):
     if request.method == "POST":
-        store = get_object_or_404(m.Store, pk=request.POST.get("store_id"))
+        store = get_object_or_404(m.Store, pk=to_int(request.POST.get("store_id")))
         request.session["store_id"] = store.pk
     target = request.POST.get("next", "")
     if not url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}):
@@ -39,7 +43,8 @@ def switch_store(request):
 @screen_required("dashboard")
 def dashboard(request):
     stores = []
-    for store in m.Store.objects.all():
+    scope = m.Store.objects.all() if request.user.role == m.OWNER else m.Store.objects.filter(pk=request.user.store_id)
+    for store in scope:
         jobs = m.RepairJob.objects.filter(store=store)
         low = [s for s in m.StorePartStock.objects.filter(store=store, part__active_flag=True).select_related("part")
                if s.is_low]
@@ -62,25 +67,37 @@ def _staff_scope(user):
 def staff(request):
     return render(request, "shop/staff.html", {
         "staff": _staff_scope(request.user).order_by("store_id", "role", "first_name"),
+        "locked": {e.pk for e in _staff_scope(request.user) if is_locked(e.email)},
+        "can_manage_staff": request.user.role in (m.OWNER, m.MANAGER),
         "suppliers": m.Supplier.objects.all(),
+        "repair_types": m.RepairType.objects.all(),
         "stores": m.Store.objects.all() if request.user.role == m.OWNER else [request.user.store],
     })
 
 
 @screen_required("staff")
+@role_required(m.OWNER, m.MANAGER)
 def staff_edit(request, pk=None):
     user = request.user
     employee = get_object_or_404(_staff_scope(user), pk=pk) if pk else m.Employee(store=user.store)
-    if pk and employee.role == m.OWNER and user.role != m.OWNER:
-        raise PermissionDenied("Only the Owner can change an Owner account.")
+    if pk and employee.role in (m.OWNER, m.MANAGER) and user.role != m.OWNER:
+        # Managers may update their own profile, but cannot reset a peer's credentials.
+        if employee.pk != user.pk:
+            record("staff_change", user, employee, outcome="Denied")
+            raise PermissionDenied("Only the Owner can change a Manager or Owner account.")
+
     stores = m.Store.objects.all() if user.role == m.OWNER else m.Store.objects.filter(pk=user.store_id)
     roles = [r for r in m.ROLES if services.can_assign_role(user, r)]
+    if employee.pk == user.pk and user.role == m.MANAGER:
+        roles = [m.MANAGER]
+
     if request.method == "POST":
         p, errors = request.POST, []
         role = p.get("role")
-        if not services.can_assign_role(user, role):
-            errors.append("Only the Owner can give the Owner role.")
-        store = stores.filter(pk=p.get("store_id") or 0).first()
+        if role not in roles:
+            errors.append("Only the Owner can give the Owner or Manager role.")
+            record("staff_change", user, employee if pk else None, outcome="Denied")
+        store = stores.filter(pk=to_int(p.get("store_id"))).first()
         if not store:
             errors.append("Pick a store.")
         email = p.get("email", "").strip().lower()
@@ -104,15 +121,42 @@ def staff_edit(request, pk=None):
             employee.active_flag = p.get("active_flag") == "on" if pk else True
             if password:
                 employee.set_password(password)
-            employee.save()
+            with transaction.atomic():
+                employee.save()
+                record("staff_updated" if pk else "staff_created", user, employee,
+                       store=employee.store, role=role, active=employee.active_flag,
+                       password_changed=bool(password))
             messages.success(request, f"{employee} saved.")
             return redirect("staff")
         for e in errors:
             messages.error(request, e)
-    return render(request, "shop/staff_form.html", {"employee": employee, "stores": stores, "roles": roles})
+    stored_email = employee.email
+    invalid = set()
+    if request.method == "POST":  # refused: show what was typed (never the password)
+        keep_typed(employee, request.POST, ["first_name", "last_name", "email"])
+        if request.POST.get("role") in roles:
+            employee.role = request.POST["role"]
+        employee.store_id = to_int(request.POST.get("store_id")) or employee.store_id
+        for e in errors:
+            if e == "Enter the first name, last name and email.":
+                invalid |= {f for f in ("first_name", "last_name", "email") if not request.POST.get(f, "").strip()}
+            elif e == "Another account uses this email.":
+                invalid.add("email")
+            elif e == "Pick a store.":
+                invalid.add("store")
+            elif "role" in e:
+                invalid.add("role")
+            else:  # "Set a starting password." and the password validators' messages
+                invalid.add("password")
+    locked = bool(pk) and is_locked(stored_email)
+    return render(request, "shop/staff_form.html", {
+        "employee": employee, "stores": stores, "roles": roles, "invalid": invalid,
+        "locked": locked, "lock_minutes": minutes_left(stored_email) if locked else None,
+    })
 
 
 @screen_required("staff")
+@role_required(m.OWNER, m.MANAGER)
 def supplier_edit(request, pk=None):
     supplier = get_object_or_404(m.Supplier, pk=pk) if pk else m.Supplier()
     if request.method == "POST":
@@ -127,13 +171,51 @@ def supplier_edit(request, pk=None):
             for field in ("contact_name", "phone", "email"):
                 setattr(supplier, field, p.get(field, "").strip() or None)
             supplier.active_flag = p.get("active_flag") == "on" if pk else True
-            supplier.save()
+            with transaction.atomic():
+                supplier.save()
+                record("supplier_updated" if pk else "supplier_created", request.user, supplier)
             messages.success(request, f"{supplier} saved.")
             return redirect("staff")
-    return render(request, "shop/supplier_form.html", {"supplier": supplier})
+        keep_typed(supplier, p, ["supplier_name", "contact_name", "phone", "email"])
+    invalid = {"supplier_name"} if request.method == "POST" else set()
+    return render(request, "shop/supplier_form.html", {"supplier": supplier, "invalid": invalid})
 
 
 @screen_required("staff")
+@role_required(m.OWNER)
+def repair_type_edit(request, pk=None):
+    """How long an appointment for each kind of repair holds a technician (2026-11-20)."""
+    repair_type = get_object_or_404(m.RepairType, pk=pk) if pk else m.RepairType()
+    if request.method == "POST":
+        p = request.POST
+        name, minutes = " ".join(p.get("type_name", "").split()), to_int(p.get("slot_minutes"))
+        low, high = services.MIN_APPOINTMENT_MINUTES, services.MAX_APPOINTMENT_MINUTES
+        if not name:
+            messages.error(request, "Enter the repair type's name.")
+        elif len(name) > 60:
+            messages.error(request, "The name is too long.")
+        elif m.RepairType.objects.filter(type_name__iexact=name).exclude(pk=repair_type.pk).exists():
+            messages.error(request, "A repair type with this name exists.")
+        elif minutes is None or not low <= minutes <= high or minutes % 15:
+            messages.error(request, f"Set the appointment length in steps of 15, from {low} to {high} minutes.")
+        else:
+            repair_type.type_name, repair_type.slot_minutes = name, minutes
+            repair_type.active_flag = p.get("active_flag") == "on" if pk else True
+            with transaction.atomic():
+                repair_type.save()
+                record("repair_type_updated" if pk else "repair_type_created", request.user, repair_type)
+            messages.success(request, f"{repair_type} saved. Appointments already booked keep their length.")
+            return redirect("staff")
+        keep_typed(repair_type, p, ["type_name", "slot_minutes"])
+        invalid = {"slot_minutes"} if name and len(name) <= 60 and not m.RepairType.objects.filter(
+            type_name__iexact=name).exclude(pk=repair_type.pk).exists() else {"type_name"}
+    else:
+        invalid = set()
+    return render(request, "shop/repair_type_form.html", {"repair_type": repair_type, "invalid": invalid})
+
+
+@screen_required("staff")
+@role_required(m.OWNER, m.MANAGER)
 def store_edit(request, pk):
     if request.user.role != m.OWNER and request.user.store_id != pk:
         raise PermissionDenied("Managers maintain their own store only.")
@@ -145,7 +227,9 @@ def store_edit(request, pk):
         else:
             for field in ("store_name", "address", "phone", "email_address", "business_hours"):
                 setattr(store, field, p.get(field, "").strip() or None)
-            store.save()
+            with transaction.atomic():
+                store.save()
+                record("store_updated", request.user, store)
             messages.success(request, f"{store} saved.")
             return redirect("staff")
     return render(request, "shop/store_form.html", {"store": store})
@@ -158,13 +242,21 @@ def access(request):
     """Owner-only, and not itself in the matrix, so the Owner cannot lock themselves out."""
     if request.method == "POST":
         if request.POST.get("action") == "reset":
-            m.ScreenAccess.objects.all().delete()
+            with transaction.atomic():
+                previous = list(m.ScreenAccess.objects.values("role", "screen", "allowed"))
+                m.ScreenAccess.objects.all().delete()
+                record("screen_access_reset", request.user, previous=previous)
             messages.success(request, "Every screen is back to its default access.")
             return redirect("access")
         with transaction.atomic():
             for screen, (_, defaults) in SCREENS.items():
                 for role in m.ROLES:
                     want = request.POST.get(f"{screen}|{role}") == "on"
+                    previous = m.ScreenAccess.objects.filter(role=role, screen=screen).first()
+                    before = previous.allowed if previous else role in defaults
+                    if before != want:
+                        record("screen_access_changed", request.user, role=role, screen=screen,
+                               before=before, allowed=want)
                     if want == (role in defaults):
                         m.ScreenAccess.objects.filter(role=role, screen=screen).delete()
                     else:
@@ -182,3 +274,9 @@ def access(request):
                           "changed": override is not None})
         rows.append({"label": label, "cells": cells})
     return render(request, "shop/access.html", {"rows": rows, "roles": m.ROLES})
+
+
+@role_required(m.OWNER)
+def audit_events(request):
+    events = m.AuditEvent.objects.select_related("actor", "store")
+    return render(request, "shop/audit_events.html", {"page": Paginator(events, 50).get_page(request.GET.get("page"))})

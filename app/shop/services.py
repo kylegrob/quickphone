@@ -5,7 +5,7 @@ every rule is enforced in one place and every change is recorded with who made i
 and when (NFR02).
 """
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.core.mail import send_mail
@@ -16,6 +16,10 @@ from django.utils import timezone
 from . import models as m
 from .crypto import encrypt_passcode
 from .permissions import ALLOW_SELF_APPROVAL_OF_PO, BENCH_ROLES, EMAIL_ROLES, PO_APPROVER_ROLES
+
+
+MAX_MONEY = Decimal("100000000")  # money columns are decimal(10,2)
+MIN_APPOINTMENT_MINUTES, MAX_APPOINTMENT_MINUTES = 15, 480  # repair_type_minutes_ck
 
 
 class RuleError(Exception):
@@ -30,16 +34,31 @@ def set_status(job, status, user, note=""):
 
 # 1.0 Schedule Appointment (FR01, UC-12) -----------------------------------------
 
+def _at(day, hhmm):
+    return datetime.combine(day, datetime.strptime(hhmm, "%H:%M").time(), timezone.get_current_timezone())
+
+
 def slot_times(day):
-    tz = timezone.get_current_timezone()
-    first = datetime.combine(day, datetime.strptime(settings.APPOINTMENT_FIRST_SLOT, "%H:%M").time(), tz)
-    last = datetime.combine(day, datetime.strptime(settings.APPOINTMENT_LAST_SLOT, "%H:%M").time(), tz)
+    """Start times offered on a day, every APPOINTMENT_SLOT_MINUTES from the first to the last slot."""
+    first, last = _at(day, settings.APPOINTMENT_FIRST_SLOT), _at(day, settings.APPOINTMENT_LAST_SLOT)
     step = timedelta(minutes=settings.APPOINTMENT_SLOT_MINUTES)
     times = []
     while first <= last:
         times.append(first)
         first += step
     return times
+
+
+def closing_time(day):
+    """Appointments must end by the close of the last slot."""
+    return _at(day, settings.APPOINTMENT_LAST_SLOT) + timedelta(minutes=settings.APPOINTMENT_SLOT_MINUTES)
+
+
+def appointment_minutes(repair_type=None, appointment=None):
+    """How long a booking holds a technician: set by its repair type (2026-11-20)."""
+    if repair_type:
+        return repair_type.slot_minutes
+    return appointment.duration_minutes if appointment else settings.APPOINTMENT_SLOT_MINUTES
 
 
 def clock(when):
@@ -61,26 +80,51 @@ def can_repair_at(employee, store):
     return employee.role in BENCH_ROLES and (employee.role == m.OWNER or employee.store_id == store.pk)
 
 
-def booked(store, when, exclude=None):
-    qs = m.Appointment.objects.filter(store=store, scheduled_at=when, appt_status=m.APPT_BOOKED)
-    return qs.exclude(pk=exclude.pk) if exclude else qs
+def booked(store, when, minutes=None, exclude=None):
+    """Booked appointments that overlap the time from `when` for `minutes`."""
+    end = when + timedelta(minutes=minutes or settings.APPOINTMENT_SLOT_MINUTES)
+    qs = m.Appointment.objects.filter(store=store, appt_status=m.APPT_BOOKED, scheduled_at__lt=end,
+                                      scheduled_at__gt=when - timedelta(minutes=MAX_APPOINTMENT_MINUTES))
+    if exclude:
+        qs = qs.exclude(pk=exclude.pk)
+    return [a for a in qs.select_related("technician") if a.ends_at > when]
 
 
-def slot_is_full(store, when, exclude=None):
-    return booked(store, when, exclude).count() >= max(technicians(store).count(), 1)
+def _peak(bookings, when):
+    """Most bookings running at the same moment from `when` on."""
+    points = {when} | {a.scheduled_at for a in bookings if a.scheduled_at > when}
+    return max((sum(1 for a in bookings if a.scheduled_at <= p < a.ends_at) for p in points), default=0)
 
 
-def save_appointment(store, customer, when, technician, user, appointment=None):
+def slot_is_full(store, when, minutes=None, exclude=None):
+    minutes = minutes or settings.APPOINTMENT_SLOT_MINUTES
+    if when + timedelta(minutes=minutes) > closing_time(timezone.localdate(when)):
+        return True
+    return _peak(booked(store, when, minutes, exclude), when) >= max(technicians(store).count(), 1)
+
+
+def busy_technicians(store, when, minutes=None, exclude=None):
+    return {a.technician_id for a in booked(store, when, minutes, exclude) if a.technician_id}
+
+
+def save_appointment(store, customer, when, technician, user, appointment=None, repair_type=None):
+    if repair_type and not repair_type.active_flag:
+        raise RuleError("Pick a repair type from the list.")
+    minutes = appointment_minutes(repair_type, appointment)
     if when < timezone.now():
         raise RuleError("Pick a time that has not passed.")
-    if slot_is_full(store, when, appointment):
+    if when + timedelta(minutes=minutes) > closing_time(timezone.localdate(when)):
+        raise RuleError(f"A {minutes}-minute appointment at {clock(when)} runs past closing. Pick an earlier time.")
+    if slot_is_full(store, when, minutes, appointment):
         raise RuleError("That time is full. Pick another time.")
-    if technician and booked(store, when, appointment).filter(technician=technician).exists():
-        raise RuleError(f"{technician.first_name} is booked at {clock(when)}. Pick another technician or time.")
+    if technician and technician.pk in busy_technicians(store, when, minutes, appointment):
+        raise RuleError(f"{technician.first_name} is booked during that time. Pick another technician or time.")
     if technician and not can_repair_at(technician, store):
         raise RuleError("Pick a technician from this store.")
     appointment = appointment or m.Appointment(store=store)
     appointment.customer, appointment.scheduled_at, appointment.technician = customer, when, technician
+    appointment.repair_type = repair_type or appointment.repair_type
+    appointment.duration_minutes = minutes
     appointment.save()
     return appointment
 
@@ -367,8 +411,8 @@ def add_parts(job, tech, lines):
 
 @transaction.atomic
 def complete_repair(job, tech, repair_notes, parts=None):
-    """Marks the repair ready and takes its parts off the store's stock in one step (FR07; Kyle,
-    2026-11-02). parts: (Part, quantity) actually used; None uses planned_parts(job). Stock never
+    """Marks the repair ready and takes its parts off the store's stock in one step (FR07; team
+    decision, 2026-11-02). parts: (Part, quantity) actually used; None uses planned_parts(job). Stock never
     goes below zero, so a shortfall blocks completion and nothing is deducted."""
     _require_own_job(job, tech)
     if job.status != m.IN_REPAIR:
@@ -436,11 +480,29 @@ def send_pickup_notification(job, user):
 
 # 6.0 Record Device Release (FR08, UC-06) ---------------------------------------
 
+def _lock_payment_job(job, user):
+    if not user.is_authenticated or (user.role != m.OWNER and user.store_id != job.store_id):
+        raise RuleError("You cannot change payments at another store.")
+    defaults = m.OWNER, m.MANAGER, m.FRONT_DESK
+    access = m.ScreenAccess.objects.filter(role=user.role, screen="jobs").first()
+    if not (access.allowed if access else user.role in defaults):
+        raise RuleError("Your role cannot use Repair jobs.")
+    m.RepairJob.objects.select_for_update().get(pk=job.pk)
+    job.refresh_from_db()
+
+
+@transaction.atomic
 def record_payment(job, user, amount, method):
     """Records the fact of payment taken at the register; the system takes no payments."""
-    amount = Decimal(amount)
+    _lock_payment_job(job, user)
+    try:
+        amount = Decimal(amount)
+    except InvalidOperation:
+        raise RuleError("Enter the amount as a number, such as 49.99.") from None
     if job.status not in (m.READY, m.UNREPAIRED):
         raise RuleError("Payment is recorded at pickup.")
+    if not amount.is_finite() or amount.as_tuple().exponent < -2 or amount >= MAX_MONEY:
+        raise RuleError("Enter the amount as a number, such as 49.99.")
     if amount <= 0:
         raise RuleError("Enter an amount greater than zero.")
     if method not in ("Card", "Cash"):
@@ -450,24 +512,55 @@ def record_payment(job, user, amount, method):
                                       note=f"Payment ${amount:.2f} {method}")
 
 
-def release_device(job, user, id_verified):
+@transaction.atomic
+def void_payment(job, user, payment_id, reason):
+    """Keep the original payment and attribute its correction; voids do not count as paid."""
+    from .audit import record
+    _lock_payment_job(job, user)
+    if job.status not in (m.READY, m.UNREPAIRED):
+        raise RuleError("A payment can be voided only before the device is released.")
+    reason = (reason or "").strip()
+    if not reason or len(reason) > 200:
+        raise RuleError("Enter a reason for voiding the payment (200 characters or fewer).")
+    payment = job.payments.select_for_update().filter(pk=payment_id).first()
+    if not payment:
+        raise RuleError("That payment is not on this job.")
+    if payment.payment_status != "Paid":
+        raise RuleError("That payment is already voided.")
+    payment.payment_status, payment.void_reason = "Voided", reason
+    payment.voided_by, payment.voided_at = user, timezone.now()
+    payment.save(update_fields=["payment_status", "void_reason", "voided_by", "voided_at"])
+    m.JobStatusHistory.objects.create(repair_job=job, status=job.status, changed_by=user,
+                                      note=f"Payment ${payment.amount:.2f} {payment.method} voided: {reason}")
+    record("payment_voided", user, payment, store=job.store, job_id=job.pk, reason=reason)
+
+
+@transaction.atomic
+def release_device(job, user, id_verified, receipt_signed):
     """A repaired device is released only after payment is recorded; no override.
-    A declined or unrepairable device may go back with no payment (decision 2026-10-28)."""
+    A declined or unrepairable device may go back with no payment (decision 2026-10-28).
+    The customer signs the printed receipt at pickup (decision 2026-11-08); the paper is the signature,
+    and signature_file records that it exists."""
+    _lock_payment_job(job, user)
     if job.status not in (m.READY, m.UNREPAIRED):
         raise RuleError("Only a job Ready for Pickup or Returned Unrepaired can be released.")
     if not id_verified:
         raise RuleError("Check the customer's photo ID and tick the box.")
     if job.status == m.READY and job.amount_paid < (job.final_cost or 0):
         raise RuleError(f"Record payment first: ${(job.final_cost or 0) - job.amount_paid:.2f} still due.")
+    if not receipt_signed:
+        raise RuleError("Print the receipt, have the customer sign it and tick the box.")
     job.id_verified_flag, job.picked_up_at = True, timezone.now()
+    job.signature_file = f"Paper receipt {job.ticket_number}"
     # The passcode is needed only while the device is in the shop; drop it at release (F6, 2026-11-06).
     had_passcode, job.device_passcode = bool(job.device_passcode), None
-    set_status(job, m.CLOSED, user, "Released to customer" + ("; passcode deleted" if had_passcode else ""))
+    set_status(job, m.CLOSED, user, "Released to customer; receipt signed" + ("; passcode deleted" if had_passcode else ""))
 
 
 # 7.0 Process Purchase Orders (FR09, FR10, UC-08 to UC-10) -----------------------
 
 def adjust_stock(store, part, change, reason, user, txn_type=m.TXN_ADJUSTMENT):
+    """Returns the jobs a count increase released from Awaiting Parts (FR06, defect D-2, 2026-11-08)."""
     if change == 0:
         raise RuleError("Enter a change other than zero.")
     if txn_type == m.TXN_ADJUSTMENT and not (reason or "").strip():
@@ -480,6 +573,9 @@ def adjust_stock(store, part, change, reason, user, txn_type=m.TXN_ADJUSTMENT):
             quantity_on_hand=stock.quantity_on_hand + change)
         m.InventoryTxn.objects.create(store=store, part=part, recorded_by=user, txn_type=txn_type,
                                       quantity_change=change, reason=(reason or "").strip() or None)
+        if txn_type == m.TXN_ADJUSTMENT and change > 0:
+            return release_waiting_jobs(store, user, "Parts in stock after a count adjustment")
+    return []
 
 
 def set_reorder_point(store, part, value, user):
@@ -536,6 +632,34 @@ def submit_po(po, user, linked_job_part_ids=()):
     waiting.filter(pk__in=linked_job_part_ids).update(purchase_order=po)
     po.po_status, po.rejection_reason = m.PO_PENDING, None
     po.save()
+    return notify_po_approvers(po, user)
+
+
+def po_approvers(po, submitted_by=None):
+    """Who can approve: active Managers of the order's store and the Owner (owner, Oct 23 #2)."""
+    qs = m.Employee.objects.filter(active_flag=True, role__in=PO_APPROVER_ROLES).filter(
+        Q(role=m.OWNER) | Q(store=po.store))
+    if submitted_by:
+        qs = qs.exclude(pk=submitted_by.pk)
+    return list(qs.order_by("role", "first_name"))
+
+
+def notify_po_approvers(po, user):
+    """Emails the approvers that an order is waiting (2026-11-20). A failed send does not undo
+    the submission; the order still shows as Pending Approval. Returns (recipients, sent)."""
+    recipients = [e.email for e in po_approvers(po, user)]
+    if not recipients:
+        return recipients, False
+    lines = "\n".join(f"  {line.part} x{line.quantity_ordered} at ${line.unit_cost:.2f}"
+                      for line in po.lines.select_related("part"))
+    body = (f"{user} submitted purchase order {po.number} for {po.store.store_name} and it needs approval.\n\n"
+            f"Supplier: {po.supplier}\nTotal: ${po.total:.2f}\n{lines}\n\n"
+            "Open Orders in the Quick Phone system to approve or reject it.\n")
+    try:
+        send_mail(f"Purchase order {po.number} needs approval", body, po.store.email_address, recipients)
+    except Exception:
+        return recipients, False
+    return recipients, True
 
 
 def approve_po(po, user):
@@ -589,14 +713,15 @@ def receive_po(po, user, received):
     return release_waiting_jobs(po.store, user)
 
 
-def release_waiting_jobs(store, user):
-    """Jobs Awaiting Parts go back to In Repair once every requested part is in stock (UC-10)."""
+def release_waiting_jobs(store, user, note="Parts received"):
+    """Jobs Awaiting Parts go back to In Repair once stock covers everything the job will take when it
+    is marked ready (FR06, UC-10). A JOB_PART Needed row may hold only the shortfall, so it cannot be
+    compared with stock on hand (defect D-1, 2026-11-08)."""
     released = []
     for job in m.RepairJob.objects.filter(store=store, status=m.AWAITING_PARTS):
-        needed = job.parts.filter(part_status=m.PART_NEEDED)
-        if all((stock_for(store, jp.part) or m.StorePartStock(quantity_on_hand=0)).quantity_on_hand >= jp.quantity
-               for jp in needed):
-            set_status(job, m.IN_REPAIR, user, "Parts received")
+        if all((stock_for(store, part) or m.StorePartStock(quantity_on_hand=0)).quantity_on_hand >= qty
+               for part, qty in planned_parts(job)):
+            set_status(job, m.IN_REPAIR, user, note)
             released.append(job)
     return released
 
@@ -604,5 +729,6 @@ def release_waiting_jobs(store, user):
 # 9.0 Maintain Shop Records (FR11, FR14) ----------------------------------------
 
 def can_assign_role(user, role):
-    """Only the Owner can give the Owner role (FR14)."""
-    return role in m.ROLES and (role != m.OWNER or user.role == m.OWNER)
+    """Owner manages all roles; Managers assign only Front Desk or Technician (FR14)."""
+    return role in m.ROLES and (user.role == m.OWNER or
+                               (user.role == m.MANAGER and role in (m.FRONT_DESK, m.TECHNICIAN)))

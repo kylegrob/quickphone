@@ -1,12 +1,12 @@
 {% extends "shop/base.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>Both stores at a glance</h1></div></div>
+<div class="page-head"><div><h1>{% if user.is_owner %}Both stores at a glance{% else %}Your store at a glance{% endif %}</h1></div></div>
 <div class="grid halves">
 {% for s in stores %}
   <section class="card">
     <div class="card-head"><div><h2>{{ s.store.store_name }}</h2><p>{{ s.store.address }}</p></div>
-      <form method="post" action="{% url 'switch_store' %}">{% csrf_token %}<input type="hidden" name="store_id" value="{{ s.store.pk }}"><input type="hidden" name="next" value="{% url 'jobs' %}"><button class="btn small">Open this store's jobs</button></form></div>
+      {% if user.is_owner %}<form method="post" action="{% url 'switch_store' %}">{% csrf_token %}<input type="hidden" name="store_id" value="{{ s.store.pk }}"><input type="hidden" name="next" value="{% url 'jobs' %}"><button class="btn small">Open this store's jobs</button></form>{% elif open_screens.jobs %}<a class="btn small" href="{% url 'jobs' %}">Open repair jobs</a>{% endif %}</div>
     <div class="tiles three">
       <div class="tile"><span class="muted">Open repairs</span><div class="n">{{ s.open }}</div></div>
       <div class="tile"><span class="muted">Low-stock parts</span><div class="n {% if s.low %}alert{% endif %}">{{ s.low|length }}</div></div>

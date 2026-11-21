@@ -28,6 +28,16 @@ def attempt(request, fn, *args, success=None, **kwargs):
     return True
 
 
+def keep_typed(obj, post, fields, checkbox="active_flag"):
+    """After a refused save, copy what was typed onto the unsaved object so the form shows it again
+    instead of the stored values (2026-11-20). Passwords are never copied back."""
+    for field in fields:
+        setattr(obj, field, post.get(field, "").strip())
+    if checkbox and obj.pk:
+        setattr(obj, checkbox, post.get(checkbox) == "on")
+    return obj
+
+
 def to_int(value, default=0):
     try:
         return int(value)

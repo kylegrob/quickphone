@@ -9,7 +9,7 @@ from .models import FRONT_DESK, MANAGER, OWNER, TECHNICIAN, ScreenAccess, Store,
 
 DESK_ROLES = (OWNER, MANAGER, FRONT_DESK)        # job list, approval, payment, release
 CHECKIN_ROLES = DESK_ROLES + (TECHNICIAN,)       # check-in, appointments, claim ticket (owner, 2026-10-30)
-EMAIL_ROLES = (OWNER, MANAGER, FRONT_DESK, TECHNICIAN)  # owner Oct 23 #1, approved for build 2026-10-28
+EMAIL_ROLES = (OWNER, MANAGER, FRONT_DESK, TECHNICIAN)  # owner Oct 23 #1
 BENCH_ROLES = (TECHNICIAN, MANAGER, OWNER)       # diagnosis, quote, repair work (owner, 2026-10-30)
 PRICE_ROLES = (OWNER,)                           # labor cost per part is set by the Owner (2026-10-30)
 STOCK_ROLES = (OWNER, MANAGER)                   # inventory, purchase orders, suppliers, staff
@@ -64,6 +64,8 @@ def screen_required(screen):
                 from django.contrib.auth.views import redirect_to_login
                 return redirect_to_login(request.get_full_path())
             if not can_open(request, screen):
+                from .audit import record
+                record("screen_access", request.user, outcome="Denied", screen=screen)
                 raise PermissionDenied("Your role cannot use this page.")
             return view(request, *args, **kwargs)
         return wrapped
@@ -78,6 +80,8 @@ def role_required(*roles):
                 from django.contrib.auth.views import redirect_to_login
                 return redirect_to_login(request.get_full_path())
             if request.user.role not in roles:
+                from .audit import record
+                record("role_access", request.user, outcome="Denied", view=view.__name__)
                 raise PermissionDenied("Your role cannot use this page.")
             return view(request, *args, **kwargs)
         return wrapped
@@ -90,8 +94,8 @@ def can_see_passcode(user, job):
 
 def can_see_contact(user):
     """Every role sees customer phone and email, Technicians included, since they check customers
-    in and call them about repairs (Kyle Robertson, 2026-11-02). Reverses client confirmation #6;
-    NFR04 still to confirm with the owner."""
+    in and call them about repairs (team decision, 2026-11-02). Reverses client confirmation #6;
+    NFR04 is still to be confirmed with the owner."""
     return user.is_authenticated
 
 
@@ -131,7 +135,7 @@ def nav_context(request):
     current = request.resolver_match.url_name if request.resolver_match else ""
     section = {
         "checkin": "checkin", "appointment_new": "checkin", "appointment_edit": "checkin",
-        "jobs": "jobs", "job_detail": "jobs", "job_ticket": "jobs",
+        "jobs": "jobs", "job_detail": "jobs", "job_ticket": "jobs", "job_receipt": "jobs",
         "bench": "bench", "dashboard": "dashboard",
         "inventory": "inventory", "part_new": "inventory", "part_edit": "inventory", "inventory_import": "inventory",
         "po_list": "orders", "po_detail": "orders", "access": "access",
@@ -140,7 +144,8 @@ def nav_context(request):
     }.get(current, "")
     ctx = {
         "nav_items": [(reverse(url), label, key == section) for key, label, url in NAV if can_open(request, key)]
-        + ([(reverse("access"), "Access", section == "access")] if user.role == OWNER else []),
+        + ([(reverse("access"), "Access", section == "access"),
+            (reverse("audit_events"), "Audit records", current == "audit_events")] if user.role == OWNER else []),
         "active_store": request.store,
         "open_screens": {key: can_open(request, key) for key in SCREENS},
         "can_contact": can_see_contact(user),

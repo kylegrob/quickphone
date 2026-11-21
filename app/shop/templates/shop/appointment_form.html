@@ -28,13 +28,18 @@
     </div>
   {% endif %}
 
+  <span class="label">Repair type</span>
+  <div class="chips">{% for t in repair_types %}<a class="chip {% if t == repair_type %}on{% endif %}" href="?date={{ day|date:'Y-m-d' }}&type={{ t.pk }}{% if customer and not appointment %}&customer={{ customer.pk }}{% endif %}">{{ t }} · {{ t.slot_minutes }} min</a>{% endfor %}</div>
+
   <span class="label">Date</span>
-  <div class="chips">{% for d in days %}<a class="chip {% if d == day %}on{% endif %}" href="?date={{ d|date:'Y-m-d' }}{% if customer and not appointment %}&customer={{ customer.pk }}{% endif %}">{% if forloop.first %}Today, {% endif %}{{ d|date:"D, M j" }}</a>{% endfor %}</div>
+  <div class="chips">{% for d in days %}<a class="chip {% if d == day %}on{% endif %}" href="?date={{ d|date:'Y-m-d' }}{% if repair_type %}&type={{ repair_type.pk }}{% endif %}{% if customer and not appointment %}&customer={{ customer.pk }}{% endif %}">{% if forloop.first %}Today, {% endif %}{{ d|date:"D, M j" }}</a>{% endfor %}</div>
 
   <form method="post" id="appt-form">{% csrf_token %}
     {% if customer %}<input type="hidden" name="customer_id" value="{{ customer.pk }}">{% endif %}
-    <span class="label">Time slot</span>
+    {% if repair_type %}<input type="hidden" name="repair_type_id" value="{{ repair_type.pk }}">{% endif %}
+    <span class="label">Time slot{% if repair_type %} ({{ minutes }} minutes){% endif %}</span>
     <div class="chips">
+      {% if not repair_type %}<p class="muted">Pick the repair type first.</p>{% endif %}
       {% for s in slots %}
         {% if s.full %}<span class="chip full" aria-disabled="true">{{ s.label }}{% if not s.selected %} · Full{% endif %}</span>
         {% else %}<label class="chip"><input type="radio" name="slot" value="{{ s.when.isoformat }}" data-busy="{{ s.busy|join:',' }}" {% if s.selected %}checked{% endif %} required>{{ s.label }}</label>{% endif %}
