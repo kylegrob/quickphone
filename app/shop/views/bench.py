@@ -1,7 +1,7 @@
-"""Technician screen: assigned queue and one work card per job (Prototype A, slide 3).
+"""Technician screen: assigned queue and one work card per job (Workspace design).
 
 The work card holds the quote and the repair together. Parts are not recorded one by one: marking the
-job ready takes the planned parts off the store's stock (Kyle, 2026-11-02).
+job ready takes the planned parts off the store's stock (team decision, 2026-11-02).
 
 Technicians see the customer's name only; phone and email are never sent to this
 screen (NFR04). Each technician sees only their own jobs plus open jobs to claim (FR04).

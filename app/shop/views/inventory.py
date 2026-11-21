@@ -1,4 +1,4 @@
-"""Manager screens: parts inventory, CSV import and purchase orders (Prototype A, slide 4)."""
+"""Manager screens: parts inventory, CSV import and purchase orders (Workspace design)."""
 import csv
 import io
 from decimal import Decimal, InvalidOperation

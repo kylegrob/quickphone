@@ -411,8 +411,8 @@ def add_parts(job, tech, lines):
 
 @transaction.atomic
 def complete_repair(job, tech, repair_notes, parts=None):
-    """Marks the repair ready and takes its parts off the store's stock in one step (FR07; Kyle,
-    2026-11-02). parts: (Part, quantity) actually used; None uses planned_parts(job). Stock never
+    """Marks the repair ready and takes its parts off the store's stock in one step (FR07; team
+    decision, 2026-11-02). parts: (Part, quantity) actually used; None uses planned_parts(job). Stock never
     goes below zero, so a shortfall blocks completion and nothing is deducted."""
     _require_own_job(job, tech)
     if job.status != m.IN_REPAIR:

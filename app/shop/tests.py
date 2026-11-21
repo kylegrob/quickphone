@@ -1,5 +1,5 @@
-"""Tests named after the catalog acceptance checks (Sprint 3 Requirements Catalog)
-plus the failure and security cases the course AI guidelines ask for."""
+"""Tests named after the requirements catalogue's acceptance checks, plus failure and
+security cases."""
 import io
 from datetime import datetime, time, timedelta
 from decimal import Decimal
@@ -350,7 +350,7 @@ class ScreenAccessTests(Base):
         po.refresh_from_db()
         self.assertEqual(po.po_status, m.PO_PENDING)  # still only a Manager or the Owner approves
         page = self.client.get(reverse("job_detail", args=[self.job("Cracked screen").pk])).content.decode()
-        self.assertIn("555-0142", page)  # Technicians see customer contact (Kyle, 2026-11-02)
+        self.assertIn("555-0142", page)  # Technicians see customer contact (team decision, 2026-11-02)
 
     def test_the_matrix_page_lists_every_screen_and_role(self):
         self.login(self.owner)
@@ -878,8 +878,8 @@ class NotificationTests(Base):
         self.assertEqual((job.email_status, job.email_sent_by), ("Sent", self.desk))
 
     def test_fr12_technician_may_send_pickup_notification(self):
-        """Owner answer Oct 23 #1, approved for the build on 2026-10-28 (supersedes NFR05).
-        Technicians also see customer contact since Kyle's change of 2026-11-02."""
+        """Owner answer Oct 23 #1 (supersedes NFR05).
+        Technicians also see customer contact since the team decision of 2026-11-02."""
         job = self.job("Will not charge")
         self.login(self.jordan)
         page = self.client.get(reverse("bench_job", args=[job.pk])).content.decode()
@@ -1105,7 +1105,7 @@ class AccessibilityMarkupTests(Base):
 
 
 class SecurityTests(Base):
-    """Controls from the security analysis (docs/sprint-4/drafts/security-analysis.md, 2026-11-06)."""
+    """Controls from the security analysis (2026-11-06)."""
 
     def setUp(self):
         super().setUp()
@@ -1307,7 +1307,7 @@ class SecurityTests(Base):
 
 
 class DefectRegressionTests(Base):
-    """One test per defect found by the Sprint 4 system tests (specification section 11.5, 2026-11-08)."""
+    """One test per defect found by the system tests (specification section 3.3, 2026-11-08)."""
 
     def waiting_job_short_of_one(self):
         """Quoted 2 of a part with 1 on hand, so the job waits with only the shortfall recorded as needed."""
@@ -1442,7 +1442,7 @@ class ReceiptTests(Base):
 
 
 class DeploymentTests(TestCase):
-    """Live-server setup from the Sprint 5 deployment plan (docs/sprint-5/drafts, 2026-11-06):
+    """Live-server setup for the live deployment (2026-11-06):
     the setup_live command, the shared lockout cache and the WhiteNoise static-file settings."""
 
     def _run_setup(self, answers, passwords, **options):

@@ -1,7 +1,6 @@
-"""Settings for the Quick Phone Repair Management System (Sprint 4 training build).
+"""Settings for the Quick Phone Repair Management System.
 
-Architecture follows the Sprint 3 Alternative Matrix and Hardware-Software
-Specification: Django 5.2, one PostgreSQL database for both stores.
+Django 5.2 with one PostgreSQL database for both stores.
 Configuration comes from environment variables so no secret lives in the repo.
 """
 import os
@@ -65,7 +64,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "quickphone.wsgi.application"
 
-# PostgreSQL is the database of record (Sprint 3 specification). QP_DB_ENGINE=sqlite
+# PostgreSQL is the database of record. QP_DB_ENGINE=sqlite
 # exists only so the automated tests can run on a machine without PostgreSQL.
 if os.environ.get("QP_DB_ENGINE", "postgresql") == "sqlite":
     DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3",
@@ -136,15 +135,15 @@ EMAIL_HOST_USER = os.environ.get("QP_EMAIL_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("QP_EMAIL_PASSWORD", "")
 EMAIL_USE_TLS = True
 
-# Device passcodes are encrypted at rest (owner, Oct 23 #7). With debug off QP_PASSCODE_KEY (a Fernet
+# Device passcodes are encrypted at rest (NFR04). With debug off QP_PASSCODE_KEY (a Fernet
 # key) is required; only training and tests fall back to a key derived from SECRET_KEY (F1).
 # Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 PASSCODE_KEY = os.environ.get("QP_PASSCODE_KEY", "")
 if not PASSCODE_KEY and not DEV_FALLBACK_ALLOWED:
     raise ImproperlyConfigured("Set QP_PASSCODE_KEY to a Fernet key, or QP_DEBUG=1 on a training machine.")
 
-# Appointment slots (FR01). Store hours are not yet confirmed by the owner;
-# these values are placeholders to confirm.
+# Appointment slots (FR01). Store hours are placeholders
+# until the owner confirms them.
 APPOINTMENT_FIRST_SLOT = "09:00"
 APPOINTMENT_LAST_SLOT = "17:00"
 APPOINTMENT_SLOT_MINUTES = 30

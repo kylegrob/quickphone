@@ -51,7 +51,7 @@ PARTS = [
     ("QP-CHG-USBC", "Charging port", "Pixel 7", "OEM", "15.00", 2, (5, 2), (2, 2)),
     ("QP-CAM-IP13", "Rear camera", "iPhone 13", "OEM", "55.00", 2, (2, 1), (0, 1)),
 ]
-# Screen, charging port and battery for every device in the check-in list (Kyle, 2026-11-20), so
+# Screen, charging port and battery for every device in the check-in list, so
 # any device a trainee picks has parts to quote. Consoles without them get an HDMI port and power
 # supply. Prices are placeholders for training, not the client's; stock sits above the reorder point
 # so the low-stock exercises above are unchanged.

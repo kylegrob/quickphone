@@ -1,5 +1,5 @@
-/* Prototype A, Workspace (selected by the owner, Curation Memo Oct 24).
-   Accessibility standard kept from Prototype B: a visible label on every field,
+/* Workspace design (selected by the owner, Oct 24).
+   Accessibility standard: a visible label on every field,
    controls at least 44px tall, statuses written in words, dark text on light. */
 :root {
   --navy: #0f1d33; --bg: #f3f4f6; --card: #fff; --line: #e5e7eb; --ink: #111827; --muted: #5b6472;
@@ -184,7 +184,7 @@ fieldset.choice { border: 0; padding: 0; margin: 14px 0 0; }
 fieldset.choice label { font-weight: 400; display: flex; gap: 10px; align-items: center; margin: 6px 0; min-height: 44px; }
 fieldset.choice input { width: 22px; height: 22px; flex: none; }
 
-/* ---- Responsive and accessibility pass (audit of Nov 2, 2026) ---- */
+/* ---- Responsive and accessibility pass (Nov 2, 2026) ---- */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .skip { position: absolute; left: 12px; top: -60px; z-index: 10; background: #fff; color: var(--ink); padding: 10px 16px; border-radius: 8px; font-weight: 600; }
 .skip:focus { top: 12px; }

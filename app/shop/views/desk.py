@@ -1,4 +1,4 @@
-"""Front Desk screens: appointments, check-in, repair jobs and pickup (Prototype A, slides 1-2)."""
+"""Front Desk screens: appointments, check-in, repair jobs and pickup (Workspace design)."""
 from datetime import date, datetime, timedelta
 
 from django.conf import settings
@@ -326,7 +326,7 @@ def job_receipt(request, pk):
 
 
 def _steps(job):
-    """The status bar on the job and bench screens (Prototype A)."""
+    """The status bar on the job and bench screens."""
     order = [m.CHECKED_IN, m.DIAGNOSING, m.AWAITING_APPROVAL, m.IN_REPAIR, m.READY, m.CLOSED]
     labels = ["Checked In", "Diagnosing", "Approval", "In Repair", "Ready", "Closed"]
     position = {m.AWAITING_PARTS: m.IN_REPAIR, m.UNREPAIRED: m.READY}.get(job.status, job.status)

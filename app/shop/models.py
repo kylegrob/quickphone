@@ -1,8 +1,8 @@
-"""Tables of the physical ERD (Sprint 3 DFD and ERD Models, Appendix A).
+"""Tables of the physical ERD (see planning/diagrams/erd).
 
-Table and column names match the physical data dictionary. Two additions were
-approved during the Sprint 4 build (2026-10-28) and must be carried into the ERD:
-QUOTE_LINE in D3 (the parts on a quote) and PART.sku.
+Table and column names match the physical data dictionary. Two tables or columns
+were added during the build and are carried into the ERD: QUOTE_LINE in D3 (the
+parts on a quote) and PART.sku.
 """
 from datetime import timedelta
 
@@ -239,7 +239,7 @@ class Supplier(models.Model):
 
 class Part(models.Model):
     part_id = models.AutoField(primary_key=True)
-    sku = models.CharField(max_length=30, unique=True)  # added in Sprint 4 (Prototype A)
+    sku = models.CharField(max_length=30, unique=True)  # shown on the Workspace design's inventory screen
     default_supplier = models.ForeignKey(
         Supplier, on_delete=models.PROTECT, db_column="default_supplier_id", null=True, blank=True
     )
@@ -472,7 +472,7 @@ class Quote(models.Model):
 
 
 class QuoteLine(models.Model):
-    """Added in Sprint 4 (approved 2026-10-28): the parts a quote includes."""
+    """The parts a quote includes."""
 
     quote_line_id = models.AutoField(primary_key=True)
     quote = models.ForeignKey(Quote, on_delete=models.CASCADE, db_column="quote_id", related_name="lines")
