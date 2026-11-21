@@ -53,7 +53,7 @@ class CheckInTests(Base):
             "technician_id": "",
         })
         job = m.RepairJob.objects.get(reported_issue="Speaker crackles")
-        self.assertRedirects(r, reverse("job_ticket", args=[job.pk]))
+        self.assertRedirects(r, reverse("job_ticket", args=[job.pk]) + "?print=1")
         self.assertEqual(job.ticket_number, f"QP-{1000 + job.pk}")
         self.assertEqual(job.status, m.CHECKED_IN)
         self.assertEqual(job.history.get().changed_by, self.desk)
@@ -175,7 +175,7 @@ class QuoteAtCheckInTests(Base):
         r = self.client.post(reverse("checkin"), {"customer_id": cust.pk, "device_model_id": self.listed("Pixel 7").pk,
                                                   "reported_issue": "Tech walk-in", "technician_id": self.sam.pk})
         job = self.job("Tech walk-in")
-        self.assertRedirects(r, reverse("job_ticket", args=[job.pk]))
+        self.assertRedirects(r, reverse("job_ticket", args=[job.pk]) + "?print=1")
         self.assertEqual(job.history.get().changed_by, self.sam)
         self.assertEqual(self.client.get(reverse("jobs")).status_code, 403)
 
@@ -1440,6 +1440,31 @@ class ReceiptTests(Base):
         self.login(self.sam)
         self.assertEqual(self.client.get(reverse("job_receipt", args=[job.pk])).status_code, 403)
 
+
+class ThermalSlipTests(Base):
+    """The ticket, tag and receipt print on an 80 mm thermal receipt printer (decision 2026-11-20)."""
+
+    def test_ticket_and_receipt_use_the_slip_layout(self):
+        self.login(self.desk)
+        ticket = self.client.get(reverse("job_ticket", args=[self.job("Cracked screen").pk]))
+        self.assertContains(ticket, '<body class="print-slip">', html=False)
+        job = self.job("Will not charge")
+        s.record_payment(job, self.desk, "50.00", "Card")
+        self.assertContains(self.client.get(reverse("job_receipt", args=[job.pk])), '<body class="print-slip">', html=False)
+        self.assertNotContains(self.client.get(reverse("jobs")), "print-slip")
+
+    def test_print_dialog_opens_only_when_asked(self):
+        self.login(self.desk)
+        url = reverse("job_ticket", args=[self.job("Cracked screen").pk])
+        self.assertNotContains(self.client.get(url), "window.print();")
+        self.assertContains(self.client.get(url, {"print": "1"}), "window.print();")
+
+    def test_job_screen_print_links_open_the_dialog(self):
+        self.login(self.desk)
+        job = self.job("Will not charge")
+        page = self.client.get(reverse("job_detail", args=[job.pk]))
+        self.assertContains(page, reverse("job_ticket", args=[job.pk]) + "?print=1")
+        self.assertContains(page, reverse("job_receipt", args=[job.pk]) + "?print=1")
 
 class DeploymentTests(TestCase):
     """Live-server setup for the live deployment (2026-11-06):

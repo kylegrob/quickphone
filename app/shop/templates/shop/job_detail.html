@@ -5,7 +5,7 @@
   <div><h1><span class="mono">{{ job.ticket_number }}</span> · {{ job.device }}</h1>
   <p>{{ job.store.store_name }} · checked in {{ job.check_in_at|date:"M j, g:i A" }}</p></div>
   <div class="actions"><span class="pill {{ job.status|slugify }}" style="font-size:16px">{{ job.status }}</span>
-  <a class="btn" href="{% url 'job_ticket' job.pk %}">Reprint ticket and tag</a></div>
+  <a class="btn" href="{% url 'job_ticket' job.pk %}?print=1">Reprint ticket and tag</a></div>
 </div>
 
 <div class="grid">
@@ -80,7 +80,7 @@
     {% endif %}
     <form method="post" id="release-form">{% csrf_token %}<input type="hidden" name="action" value="release">
       <h3>Release device</h3>
-      <p><a class="btn block" href="{% url 'job_receipt' job.pk %}">Print receipt</a></p>
+      <p><a class="btn block" href="{% url 'job_receipt' job.pk %}?print=1">Print receipt</a></p>
       <label style="font-weight:400;display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="id_verified" class="release-check" required style="width:22px;height:22px"> Photo ID checked</label>
       <label style="font-weight:400;display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="receipt_signed" class="release-check" required style="width:22px;height:22px"> Customer signed the receipt</label>
       {% if job.status == "Ready for Pickup" and due > 0 %}
@@ -95,7 +95,7 @@
   {% endif %}
 
   {% if job.status == "Closed" %}
-  <section class="card"><h2>Released</h2><p>{{ job.picked_up_at|date:"M j, g:i A" }} · photo ID checked · receipt signed · paid ${{ job.amount_paid|floatformat:2 }}</p><p><a class="btn block" href="{% url 'job_receipt' job.pk %}">Reprint receipt</a></p></section>
+  <section class="card"><h2>Released</h2><p>{{ job.picked_up_at|date:"M j, g:i A" }} · photo ID checked · receipt signed · paid ${{ job.amount_paid|floatformat:2 }}</p><p><a class="btn block" href="{% url 'job_receipt' job.pk %}?print=1">Reprint receipt</a></p></section>
   {% endif %}
 </aside>
 </div>

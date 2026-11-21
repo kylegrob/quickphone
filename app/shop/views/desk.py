@@ -8,6 +8,7 @@ from django.core.validators import validate_email
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
 from .. import models as m
@@ -142,7 +143,7 @@ def checkin(request):
                 transaction.set_rollback(True)  # after the lookup: no queries run once it is set
             else:
                 messages.success(request, f"Job {job.ticket_number} created.")
-                return redirect("job_ticket", job.pk)
+                return redirect(reverse("job_ticket", args=[job.pk]) + "?print=1")
         for e in errors:
             messages.error(request, e)
     invalid = _invalid_checkin_fields(request.POST, errors, customer) if errors else set()

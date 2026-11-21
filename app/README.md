@@ -19,7 +19,11 @@ With `QP_DEBUG=1` set, `.venv\Scripts\python app\manage.py seed_training --yes` 
 
 ## Tests
 
-`$env:QP_DB_ENGINE='sqlite'; .venv\Scripts\python app\manage.py test shop` runs 154 tests named after the catalogue's acceptance checks. They include the security cases (a Technician approving an order, a Front Desk user opening inventory, an unpaid release, stock below zero, a Manager creating an Owner account, sign-in lockout, weak passwords, other-store records by ID, CSRF, settings that refuse to start without keys) and the live-deployment checks (the `setup_live` command, the shared lockout cache, and the live settings and migration).
+`$env:QP_DB_ENGINE='sqlite'; .venv\Scripts\python app\manage.py test shop` runs 157 tests named after the catalogue's acceptance checks. They include the security cases (a Technician approving an order, a Front Desk user opening inventory, an unpaid release, stock below zero, a Manager creating an Owner account, sign-in lockout, weak passwords, other-store records by ID, CSRF, settings that refuse to start without keys) and the live-deployment checks (the `setup_live` command, the shared lockout cache, and the live settings and migration).
+
+## Printer setup (each front desk)
+
+The claim ticket, device tag and pickup receipt print on an 80 mm thermal receipt printer with an auto-cutter, such as the Epson TM-m30III or Star mC-Print3. Printing goes through the browser, so the printer only has to be installed on the desk computer. Install the maker's Windows driver, set the paper to the 80 mm roll, set the driver to cut at the end of each page and trim blank paper at the bottom, and make it the Windows default printer. The device tag starts a new page, so it comes out as its own slip. To print without the dialog, open the app from a Chrome shortcut whose target ends with `--kiosk-printing`, with every other Chrome window closed. Chrome then sends each print straight to the default printer. After check-in the ticket page prints at once. On the job screen, the Reprint ticket and Print receipt buttons print the same way, and the Print button on either page prints again. Without the kiosk shortcut, the print dialog opens instead: pick the thermal printer, set Margins to None, and turn off Headers and footers.
 
 ## Security
 
