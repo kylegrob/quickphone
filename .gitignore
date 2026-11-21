@@ -1,25 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local database, captured emails and collected static files
+/app/*.sqlite3
+/app/sent_emails/
+/app/staticfiles/
+
+# Secrets and local configuration
+.env
+.env.*
+*.pem
+
 # Office lock and temp files
 ~$*
 *.tmp
 .~lock.*
 
-# OS clutter
+# Editor and OS clutter
+.vscode/
+.idea/
+.claude/
 Thumbs.db
 desktop.ini
 .DS_Store
 
-# Python
-__pycache__/
-
-# Kyle's local working folders (drafts, render scripts, superseded diagram sets)
+# Local working files that are not part of the project
+/AGENTS.md
+/CLAUDE.md
+/tools/
+/docs/
 /deliverables/
 /outlines/
-
-# Sprint 4 working system: local environment, database and captured emails
-/.venv/
-/app/dev.sqlite3
-/app/sent_emails/
-/app/staticfiles/
 /feedback/
 /submitted/
-/docs/
+/.training-build/
